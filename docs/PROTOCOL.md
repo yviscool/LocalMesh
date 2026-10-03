@@ -19,7 +19,7 @@ Application message
 - **屏幕/音视频**：独立数据面；不复用命令流，不阻塞命令。
 - **本机 Service/User Agent**：受 ACL 保护的 named pipe；禁止开放 TCP loopback 作为唯一安全边界。
 
-当前代码中的 `internal/transport/tcp` 是 loopback/集成测试用的长度分帧适配器，负责验证 transport contract，不提供生产 LAN 认证。生产网络必须使用 TLS/QUIC 的身份绑定、证书校验和会话授权后才能承载控制面消息。
+当前代码中的 `internal/transport/tcp` 是 loopback/集成测试用的长度分帧适配器，负责验证 transport contract；`internal/transport/tls` 已提供 TLS 1.3 默认值、ServerName 校验、握手 deadline 和可选双向 mTLS。生产网络必须使用证书/公钥身份绑定和会话授权后才能承载控制面消息。
 
 ## Envelope
 

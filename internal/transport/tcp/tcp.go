@@ -72,7 +72,7 @@ func serveConnection(ctx context.Context, conn net.Conn, handler func(context.Co
 	_ = handler(ctx, message)
 }
 
-func writeMessage(ctx context.Context, conn net.Conn, message protocol.Envelope, timeout time.Duration) error {
+func WriteMessage(ctx context.Context, conn net.Conn, message protocol.Envelope, timeout time.Duration) error {
 	payload, err := json.Marshal(message)
 	if err != nil {
 		return fmt.Errorf("marshal protocol envelope: %w", err)
@@ -94,7 +94,7 @@ func writeMessage(ctx context.Context, conn net.Conn, message protocol.Envelope,
 	return nil
 }
 
-func readMessage(ctx context.Context, conn net.Conn) (protocol.Envelope, error) {
+func ReadMessage(ctx context.Context, conn net.Conn) (protocol.Envelope, error) {
 	if deadline, ok := ctx.Deadline(); ok {
 		_ = conn.SetReadDeadline(deadline)
 	}
@@ -118,4 +118,12 @@ func readMessage(ctx context.Context, conn net.Conn) (protocol.Envelope, error) 
 		return protocol.Envelope{}, fmt.Errorf("validate inbound message: %w", err)
 	}
 	return message, nil
+}
+
+func writeMessage(ctx context.Context, conn net.Conn, message protocol.Envelope, timeout time.Duration) error {
+	return WriteMessage(ctx, conn, message, timeout)
+}
+
+func readMessage(ctx context.Context, conn net.Conn) (protocol.Envelope, error) {
+	return ReadMessage(ctx, conn)
 }

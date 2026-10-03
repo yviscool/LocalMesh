@@ -16,12 +16,13 @@
 - `application/control.Service`：协议校验、授权、幂等、命令创建和审计编排。
 - `storage/sqlite.Store`：Go 1.23 兼容的纯 Go SQLite adapter、顺序 migration、外键、命令、审计、配对、成员和会话生命周期写入。
 - `transport/tcp`：标准库 loopback 控制传输、长度分帧、deadline、最大帧保护和集成测试；暂不作为生产 LAN 认证传输。
+- `transport/tls`：TLS 1.3 默认、ServerName 校验、握手超时、客户端证书和服务端 mTLS contract test。
 - 项目本地 skill 集合：位于 `.agents/skills/vendor/`。
 
 ## 下一步
 
 1. 为 SQLite repository 增加 pairing/member/session 的恢复查询和事务用例。
-2. 在 TCP contract 之上实现 TLS/QUIC adapter 和身份认证。
+2. 在 TLS contract 之上接入设备公钥身份绑定和 session authorization。
 3. 增加 VLAN/客户端隔离和网络故障注入测试。
 4. 建立 Windows Service/User Agent 的 named pipe contract test。
 
