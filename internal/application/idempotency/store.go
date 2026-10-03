@@ -54,3 +54,15 @@ func (s *Store) Complete(key, fingerprint string, data []byte) bool {
 	s.entries[key] = existing
 	return true
 }
+
+// Abort releases a reservation when the side effect did not happen.
+func (s *Store) Abort(key, fingerprint string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	existing, ok := s.entries[key]
+	if !ok || existing.fingerprint != fingerprint || len(existing.data) > 0 {
+		return false
+	}
+	delete(s.entries, key)
+	return true
+}

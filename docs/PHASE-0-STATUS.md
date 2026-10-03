@@ -13,6 +13,7 @@
 - `simulation.Run`：100 Agent 并发发现、心跳、地址变化和 session 重连验收。
 - `config.Config`：角色、监听、Session、Discovery、Command 和数据保留的安全默认值与启动校验。
 - `application` Ports：Discovery、Session、Command transport、Repository 和 AuditSink 的替换边界。
+- `application/control.Service`：协议校验、授权、幂等、命令创建和审计编排。
 - 项目本地 skill 集合：位于 `.agents/skills/vendor/`。
 
 ## 下一步

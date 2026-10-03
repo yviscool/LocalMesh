@@ -28,6 +28,19 @@ adapters: SQLite / QUIC / named pipe / Windows API
 
 编排完整用例：授权、幂等、重试、结果聚合和审计。Application 通过 Ports 使用外部能力，不直接创建数据库连接或 socket。
 
+当前第一个完整用例是 `application/control.Service.Submit`：
+
+```text
+Validate Envelope
+    -> Authorize target/capability
+    -> Reserve idempotency key
+    -> Persist command
+    -> Append audit event
+    -> Complete idempotency record
+```
+
+仓储失败会释放幂等 reservation；相同 fingerprint 的重试返回 replay；相同 key 的不同 fingerprint 返回 conflict。
+
 ### Adapters
 
 实现 Ports：SQLite repository、QUIC transport、UDP/mDNS discovery、named pipe、Windows Service 和 User Agent。Adapter 的失败必须转换为稳定错误码，不把驱动细节泄露到 UI。
@@ -60,4 +73,3 @@ action, target_kind, target_id, outcome, error_code
 4. 任何批量操作必须有 deadline、idempotency key、单目标结果和审计结果。
 5. 业务错误使用稳定错误码；底层错误只在日志中保留详细上下文。
 6. 每个新 Port 必须有内存 fake 或 contract test，确保 adapter 可替换。
-

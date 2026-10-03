@@ -50,3 +50,14 @@ func TestStoreConcurrentBeginHasOneOwner(t *testing.T) {
 		t.Fatalf("new owners = %d, want 1", newCount)
 	}
 }
+
+func TestStoreAbortReleasesUncompletedReservation(t *testing.T) {
+	s := NewStore()
+	_ = s.Begin("key-1", "hash-a")
+	if !s.Abort("key-1", "hash-a") {
+		t.Fatal("Abort() should release a reservation")
+	}
+	if got := s.Begin("key-1", "hash-a"); got.Status != StatusNew {
+		t.Fatalf("Begin() after abort = %s, want %s", got.Status, StatusNew)
+	}
+}
