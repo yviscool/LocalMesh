@@ -10,7 +10,7 @@ Network -> Device -> Identity -> Classroom -> Teacher
 
 网络可达性只解决“能否通信”，身份和授权才决定“能否控制”。
 
-实现契约见：[PROTOCOL.md](PROTOCOL.md)、[SECURITY.md](SECURITY.md)、[DATA-MODEL.md](DATA-MODEL.md)、[NETWORK-MATRIX.md](NETWORK-MATRIX.md)、[TESTING.md](TESTING.md) 和 [OPERATIONS.md](OPERATIONS.md)。
+实现契约见：[FOUNDATION.md](FOUNDATION.md)、[PROTOCOL.md](PROTOCOL.md)、[SECURITY.md](SECURITY.md)、[DATA-MODEL.md](DATA-MODEL.md)、[NETWORK-MATRIX.md](NETWORK-MATRIX.md)、[TESTING.md](TESTING.md) 和 [OPERATIONS.md](OPERATIONS.md)。
 
 ## 进程架构
 
@@ -102,3 +102,18 @@ Installed -> Starting -> Ready -> Degraded -> Stopping -> Stopped
 ```
 
 组件进入 `Degraded` 时仍可提供的能力必须明确。例如控制面正常而屏幕编码失败时，命令和审计继续运行，UI 显示数据面不可用；认证或策略存储不可用时必须拒绝控制命令。
+
+## 业务扩展路径
+
+```text
+Feature Spec
+   -> Domain invariant
+   -> Application use case
+   -> Protocol/Port contract
+   -> In-memory tests
+   -> Infrastructure adapter
+   -> Integration test
+   -> UI / packaging
+```
+
+任何业务功能都必须沿这条路径进入系统，避免从 UI 直接连接数据库或从网络 handler 直接调用 Windows 特权 API。

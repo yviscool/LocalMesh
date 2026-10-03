@@ -11,13 +11,16 @@
 - `protocol.Envelope`：版本、消息类型、大小、截止时间和命令字段校验。
 - `idempotency.Store`：并发安全的幂等键、结果重放和指纹冲突检测。
 - `simulation.Run`：100 Agent 并发发现、心跳、地址变化和 session 重连验收。
+- `config.Config`：角色、监听、Session、Discovery、Command 和数据保留的安全默认值与启动校验。
+- `application` Ports：Discovery、Session、Command transport、Repository 和 AuditSink 的替换边界。
 - 项目本地 skill 集合：位于 `.agents/skills/vendor/`。
 
 ## 下一步
 
-1. 用本地 TCP/QUIC 适配器替换测试桩，保留领域层无网络依赖。
-2. 将配对和命令领域模型接入 SQLite 仓储与审计事件。
+1. 实现 SQLite migration、repository 和 AuditSink，验证事务边界。
+2. 实现本地 TCP/QUIC adapter，保留 Domain/Application 无网络依赖。
 3. 增加 VLAN/客户端隔离和网络故障注入测试。
+4. 建立 Windows Service/User Agent 的 named pipe contract test。
 
 ## 当前验证
 

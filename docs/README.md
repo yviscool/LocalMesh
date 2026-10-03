@@ -8,6 +8,7 @@
 
 ## 实现契约
 
+- [FOUNDATION.md](FOUNDATION.md)：分层、Ports、配置和业务开发基座
 - [PROTOCOL.md](PROTOCOL.md)：控制面消息、版本、幂等和错误码
 - [SECURITY.md](SECURITY.md)：信任边界、认证、授权和威胁模型
 - [DATA-MODEL.md](DATA-MODEL.md)：SQLite 表、索引约束和事务边界
@@ -25,4 +26,3 @@
 ## 文档变更规则
 
 协议、权限、数据模型或网络假设发生变化时，必须同时更新对应契约文档、ADR、测试验收条件和迁移说明。原始产品推演保留在根目录 [aaa.md](../aaa.md)，不作为单独的实现契约。
-
