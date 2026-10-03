@@ -73,3 +73,4 @@ action, target_kind, target_id, outcome, error_code
 4. 任何批量操作必须有 deadline、idempotency key、单目标结果和审计结果。
 5. 业务错误使用稳定错误码；底层错误只在日志中保留详细上下文。
 6. 每个新 Port 必须有内存 fake 或 contract test，确保 adapter 可替换。
+7. TLS 认证成功不等于课堂授权；设备公钥证明、session 绑定和 classroom capability 检查必须分层执行。
