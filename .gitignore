@@ -1,0 +1,25 @@
+# Go build and test output
+/bin/
+/dist/
+*.test
+*.out
+coverage.out
+
+# IDE and OS files
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Local secrets and configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Generated protocol/native output
+/proto/gen/
+/native/build/
+
