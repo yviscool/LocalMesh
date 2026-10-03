@@ -10,10 +10,12 @@ import (
 
 	"localmesh/internal/application"
 	"localmesh/internal/domain/command"
+	"localmesh/internal/domain/pairing"
+	"localmesh/internal/domain/session"
 	_ "modernc.org/sqlite"
 )
 
-//go:embed migrations/001_initial.sql
+//go:embed migrations/*.sql
 var migrationFS embed.FS
 
 var ErrDuplicateCommand = errors.New("duplicate command idempotency key")
@@ -44,31 +46,41 @@ func (s *Store) Migrate(ctx context.Context) error {
 	if _, err := s.db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)`); err != nil {
 		return fmt.Errorf("create migration table: %w", err)
 	}
-	var applied int
-	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM schema_migrations WHERE version = 1`).Scan(&applied); err != nil {
-		return fmt.Errorf("read migration state: %w", err)
+	migrations := []struct {
+		version int
+		name    string
+	}{
+		{version: 1, name: "migrations/001_initial.sql"},
+		{version: 2, name: "migrations/002_runtime_state.sql"},
 	}
-	if applied > 0 {
-		return nil
-	}
-	script, err := migrationFS.ReadFile("migrations/001_initial.sql")
-	if err != nil {
-		return fmt.Errorf("read initial migration: %w", err)
-	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin migration: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, string(script)); err != nil {
-		tx.Rollback()
-		return fmt.Errorf("apply initial migration: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO schema_migrations(version, applied_at) VALUES(1, ?)`, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
-		tx.Rollback()
-		return fmt.Errorf("record initial migration: %w", err)
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit migration: %w", err)
+	for _, migration := range migrations {
+		version, name := migration.version, migration.name
+		var applied int
+		if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM schema_migrations WHERE version = ?`, version).Scan(&applied); err != nil {
+			return fmt.Errorf("read migration state %d: %w", version, err)
+		}
+		if applied > 0 {
+			continue
+		}
+		script, err := migrationFS.ReadFile(name)
+		if err != nil {
+			return fmt.Errorf("read migration %d: %w", version, err)
+		}
+		tx, err := s.db.BeginTx(ctx, nil)
+		if err != nil {
+			return fmt.Errorf("begin migration %d: %w", version, err)
+		}
+		if _, err := tx.ExecContext(ctx, string(script)); err != nil {
+			tx.Rollback()
+			return fmt.Errorf("apply migration %d: %w", version, err)
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO schema_migrations(version, applied_at) VALUES(?, ?)`, version, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+			tx.Rollback()
+			return fmt.Errorf("record migration %d: %w", version, err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit migration %d: %w", version, err)
+		}
 	}
 	return nil
 }
@@ -101,5 +113,76 @@ func (s *Store) Append(ctx context.Context, event application.AuditEvent) error 
 	return nil
 }
 
+func (s *Store) CreatePairingRequest(ctx context.Context, request pairing.Request) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO pairing_requests(request_id, device_id, classroom_id, join_code, status, created_at) VALUES(?, ?, ?, ?, ?, ?)`, request.RequestID, request.DeviceID, request.ClassroomID, request.Code, request.Status, request.CreatedAt.UTC().Format(time.RFC3339Nano))
+	if err != nil {
+		return fmt.Errorf("insert pairing request: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) DecidePairingRequest(ctx context.Context, requestID string, status pairing.Status, reviewedAt time.Time) error {
+	result, err := s.db.ExecContext(ctx, `UPDATE pairing_requests SET status = ?, reviewed_at = ? WHERE request_id = ? AND status = ?`, status, reviewedAt.UTC().Format(time.RFC3339Nano), requestID, pairing.StatusPending)
+	if err != nil {
+		return fmt.Errorf("update pairing request: %w", err)
+	}
+	if affected, _ := result.RowsAffected(); affected != 1 {
+		return fmt.Errorf("pairing request %s: %w", requestID, sql.ErrNoRows)
+	}
+	return nil
+}
+
+func (s *Store) AddMember(ctx context.Context, classroomID, memberID, memberKind, role, source, approvedBy string, joinedAt time.Time) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO classroom_members(classroom_id, member_id, member_kind, role, source, approved_by, joined_at) VALUES(?, ?, ?, ?, ?, ?, ?) ON CONFLICT(classroom_id, member_id) DO UPDATE SET member_kind=excluded.member_kind, role=excluded.role, source=excluded.source, approved_by=excluded.approved_by, joined_at=excluded.joined_at, revoked_at=NULL`, classroomID, memberID, memberKind, role, source, approvedBy, joinedAt.UTC().Format(time.RFC3339Nano))
+	if err != nil {
+		return fmt.Errorf("add classroom member: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) RevokeMember(ctx context.Context, classroomID, memberID string, revokedAt time.Time) error {
+	result, err := s.db.ExecContext(ctx, `UPDATE classroom_members SET revoked_at = ? WHERE classroom_id = ? AND member_id = ? AND revoked_at IS NULL`, revokedAt.UTC().Format(time.RFC3339Nano), classroomID, memberID)
+	if err != nil {
+		return fmt.Errorf("revoke classroom member: %w", err)
+	}
+	if affected, _ := result.RowsAffected(); affected != 1 {
+		return fmt.Errorf("classroom member %s: %w", memberID, sql.ErrNoRows)
+	}
+	return nil
+}
+
+func (s *Store) OpenSession(ctx context.Context, value session.Session, classroomID, transport string) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO sessions(session_id, device_id, classroom_id, transport, state, opened_at, last_seen_at, expires_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?)`, value.ID, value.DeviceID, classroomID, transport, value.State, value.LastSeen.UTC().Format(time.RFC3339Nano), value.LastSeen.UTC().Format(time.RFC3339Nano), value.ExpiresAt.UTC().Format(time.RFC3339Nano))
+	if err != nil {
+		return fmt.Errorf("open session: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) HeartbeatSession(ctx context.Context, sessionID string, lastSeen, expiresAt time.Time) error {
+	result, err := s.db.ExecContext(ctx, `UPDATE sessions SET state = 'active', last_seen_at = ?, expires_at = ? WHERE session_id = ? AND state != 'closed'`, lastSeen.UTC().Format(time.RFC3339Nano), expiresAt.UTC().Format(time.RFC3339Nano), sessionID)
+	if err != nil {
+		return fmt.Errorf("heartbeat session: %w", err)
+	}
+	if affected, _ := result.RowsAffected(); affected != 1 {
+		return fmt.Errorf("session %s: %w", sessionID, sql.ErrNoRows)
+	}
+	return nil
+}
+
+func (s *Store) CloseSession(ctx context.Context, sessionID, reason string, closedAt time.Time) error {
+	result, err := s.db.ExecContext(ctx, `UPDATE sessions SET state = 'closed', closed_at = ?, close_reason = ? WHERE session_id = ? AND state != 'closed'`, closedAt.UTC().Format(time.RFC3339Nano), reason, sessionID)
+	if err != nil {
+		return fmt.Errorf("close session: %w", err)
+	}
+	if affected, _ := result.RowsAffected(); affected != 1 {
+		return fmt.Errorf("session %s: %w", sessionID, sql.ErrNoRows)
+	}
+	return nil
+}
+
 var _ application.CommandRepository = (*Store)(nil)
 var _ application.AuditSink = (*Store)(nil)
+var _ application.PairingRepository = (*Store)(nil)
+var _ application.MembershipRepository = (*Store)(nil)
+var _ application.SessionRepository = (*Store)(nil)

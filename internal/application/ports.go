@@ -7,6 +7,8 @@ import (
 	"localmesh/internal/domain/command"
 	"localmesh/internal/domain/discovery"
 	"localmesh/internal/domain/identity"
+	"localmesh/internal/domain/pairing"
+	"localmesh/internal/domain/session"
 	"localmesh/internal/protocol"
 )
 
@@ -36,6 +38,22 @@ type CommandRepository interface {
 
 type AuditSink interface {
 	Append(context.Context, AuditEvent) error
+}
+
+type PairingRepository interface {
+	CreatePairingRequest(context.Context, pairing.Request) error
+	DecidePairingRequest(context.Context, string, pairing.Status, time.Time) error
+}
+
+type MembershipRepository interface {
+	AddMember(context.Context, string, string, string, string, string, string, time.Time) error
+	RevokeMember(context.Context, string, string, time.Time) error
+}
+
+type SessionRepository interface {
+	OpenSession(context.Context, session.Session, string, string) error
+	HeartbeatSession(context.Context, string, time.Time, time.Time) error
+	CloseSession(context.Context, string, string, time.Time) error
 }
 
 type AuditEvent struct {

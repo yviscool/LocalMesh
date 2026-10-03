@@ -73,4 +73,4 @@ audit_events
 
 ## 当前实现
 
-`internal/storage/sqlite` 提供纯 Go SQLite adapter，启动时执行嵌入式 migration，并强制启用外键。当前已实现 `commands`、`command_results` 和 `audit_events` 的写入；pairing、成员和 session 查询将在下一片持久化切片加入。
+`internal/storage/sqlite` 提供纯 Go SQLite adapter，启动时按顺序执行嵌入式 migration，并强制启用外键。当前已实现 `commands`、`command_results`、`audit_events`、`pairing_requests`、`classroom_members` 和 `sessions` 的写入与生命周期更新。
