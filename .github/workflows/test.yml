@@ -27,4 +27,5 @@ jobs:
         run: go test -race -shuffle=on ./...
       - name: Run vet
         run: go vet ./...
-
+      - name: Run 100-agent simulation
+        run: go test -race -shuffle=on ./internal/simulation -run TestRunOneHundredAgents -count=1

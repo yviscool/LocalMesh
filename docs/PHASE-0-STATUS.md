@@ -8,16 +8,21 @@
 - `session.Session`：`discovered -> pairing -> active -> closed` 状态机、TTL 和心跳过期。
 - `discovery.Registry`：线程安全的短期发现缓存和过期候选过滤。
 - `session.Backoff`：指数退避、最大延迟和 context 取消。
+- `protocol.Envelope`：版本、消息类型、大小、截止时间和命令字段校验。
+- `idempotency.Store`：并发安全的幂等键、结果重放和指纹冲突检测。
+- `simulation.Run`：100 Agent 并发发现、心跳、地址变化和 session 重连验收。
 - 项目本地 skill 集合：位于 `.agents/skills/vendor/`。
 
 ## 下一步
 
 1. 用本地 TCP/QUIC 适配器替换测试桩，保留领域层无网络依赖。
-2. 增加 100 个模拟 Agent 的课堂仿真测试。
-3. 将配对和命令领域模型接入 SQLite 仓储与审计事件。
+2. 将配对和命令领域模型接入 SQLite 仓储与审计事件。
+3. 增加 VLAN/客户端隔离和网络故障注入测试。
 
 ## 当前验证
 
 ```text
 go test ./...  PASS
+go test -race -shuffle=on ./...  PASS
+go test -race -shuffle=on ./internal/simulation -run TestRunOneHundredAgents -count=1  PASS
 ```
