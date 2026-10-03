@@ -41,6 +41,18 @@ Validate Envelope
 
 仓储失败会释放幂等 reservation；相同 fingerprint 的重试返回 replay；相同 key 的不同 fingerprint 返回 conflict。
 
+会话认证用例 `application/sessionauth.Service.Authenticate` 的顺序是：
+
+```text
+TLS connection
+    -> challenge DeviceID/SessionID binding
+    -> Ed25519 signature verification
+    -> session state activation
+    -> SessionRepository persistence
+```
+
+身份认证成功只证明设备持有密钥；课堂成员、角色和 capability 检查仍由授权用例负责。
+
 ### Adapters
 
 实现 Ports：SQLite repository、QUIC transport、UDP/mDNS discovery、named pipe、Windows Service 和 User Agent。当前 SQLite command/audit adapter、loopback TCP contract 和 TLS/mTLS contract 已落地，其余 adapter 按 Phase 0 顺序接入。Adapter 的失败必须转换为稳定错误码，不把驱动细节泄露到 UI。明文 TCP 不能直接用于生产 LAN 控制。

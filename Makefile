@@ -1,6 +1,6 @@
 GO ?= go
 
-.PHONY: fmt test vet check race tidy protocol-test simulate storage-test transport-test auth-test
+.PHONY: fmt test vet check race tidy protocol-test simulate storage-test transport-test auth-test session-auth-test
 
 fmt:
 	@test -z "$$($(GO)fmt -l .)" || (echo "Go files are not formatted"; exit 1)
@@ -31,5 +31,8 @@ transport-test:
 
 auth-test:
 	$(GO) test -race -shuffle=on ./internal/auth -count=1
+
+session-auth-test:
+	$(GO) test -race -shuffle=on ./internal/application/sessionauth -count=1
 
 check: fmt race vet
