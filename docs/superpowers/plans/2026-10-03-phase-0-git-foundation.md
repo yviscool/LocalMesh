@@ -23,9 +23,10 @@
 - [x] Add repository hygiene: `.gitignore`, Makefile, README, contributing rules, CI workflow, and GitHub templates.
 - [x] Add pairing request lifecycle with idempotency key and approval/revocation states.
 - [x] Add command envelope, retry policy, and per-target result aggregation types.
-- [ ] Add in-memory discovery registry with stale-observation expiry.
-- [ ] Add reconnect backoff policy and 100-agent simulation test.
-- [ ] Initialize local Git history and publish the repository through `gh`.
+- [x] Add in-memory discovery registry with stale-observation expiry.
+- [x] Add reconnect backoff policy.
+- [x] Initialize local Git history and publish the repository through `gh`.
+- [ ] Add the 100-agent simulation test.
 
 ## Verification
 
@@ -34,4 +35,3 @@ gofmt -l .
 go test -race -shuffle=on ./...
 go vet ./...
 ```
-
