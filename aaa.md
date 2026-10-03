@@ -1762,5 +1762,11 @@ LocalMesh 产品原始设计稿。
 - [docs/ROADMAP.md](docs/ROADMAP.md)：阶段目标与验收标准
 - [docs/DECISIONS.md](docs/DECISIONS.md)：已确认的架构决策
 - [.agents/skills/architecture-planning/SKILL.md](.agents/skills/architecture-planning/SKILL.md)：架构规划 agent skill
+- [docs/PROTOCOL.md](docs/PROTOCOL.md)：控制面消息、版本和错误码
+- [docs/SECURITY.md](docs/SECURITY.md)：信任边界、密钥、授权和威胁模型
+- [docs/DATA-MODEL.md](docs/DATA-MODEL.md)：SQLite 表、约束和事务边界
+- [docs/NETWORK-MATRIX.md](docs/NETWORK-MATRIX.md)：Wi-Fi、有线、VLAN 和隔离场景
+- [docs/TESTING.md](docs/TESTING.md)：测试层级、故障注入和 Phase 0 验收
+- [docs/OPERATIONS.md](docs/OPERATIONS.md)：运行状态、观测指标和恢复语义
 
 当前里程碑是 **Phase 0：Network Foundation**，先完成设备身份、发现、配对、认证会话、心跳和断线重连，再进入控制和屏幕能力。

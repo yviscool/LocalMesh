@@ -44,3 +44,4 @@
 
 网络、协议和批量命令功能必须额外使用 `golang-concurrency`、`golang-testing`、`golang-observability` 和 `superpowers-systematic-debugging`。
 
+架构、安全或持久化变更还必须阅读并落实：`golang-security`、`golang-error-handling`、`spec-driven-development` 和 `code-review-and-quality`。完成前使用 `verification-before-completion`，提交前使用 `requesting-code-review`。

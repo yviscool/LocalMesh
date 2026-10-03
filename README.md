@@ -6,7 +6,7 @@ Local-first Windows classroom control platform. LocalMesh manages a group of dev
 
 Phase 0 is under construction: stable device identity, classroom membership, discovery observations, pairing/session contracts, and command envelopes.
 
-Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/ROADMAP.md](docs/ROADMAP.md), and [docs/PHASE-0-STATUS.md](docs/PHASE-0-STATUS.md) before implementing features.
+Read the [documentation map](docs/README.md), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/ROADMAP.md](docs/ROADMAP.md), and [docs/PHASE-0-STATUS.md](docs/PHASE-0-STATUS.md) before implementing features.
 
 ## Development
 
@@ -33,4 +33,3 @@ export all_proxy=socks5://127.0.0.1:7897
 - Run `make check` before commit and push.
 - Pull requests must explain behavior, tests, security impact, and rollout concerns.
 - Never commit credentials, machine-specific config, generated binaries, or screen data.
-
