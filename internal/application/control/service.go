@@ -56,6 +56,10 @@ func (s *Service) Submit(ctx context.Context, message protocol.Envelope, cmd com
 		return Outcome{}, fmt.Errorf("authorize command: %w", err)
 	}
 	fingerprint := commandFingerprint(message, cmd)
+	cmd.RequestID = message.RequestID
+	cmd.IdempotencyKey = message.IdempotencyKey
+	cmd.ActorID = message.SenderID
+	cmd.ClassroomID = message.ClassroomID
 	reservation := s.Idempotency.Begin(message.IdempotencyKey, fingerprint)
 	switch reservation.Status {
 	case idempotency.StatusConflict:

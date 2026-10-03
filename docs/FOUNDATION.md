@@ -43,7 +43,7 @@ Validate Envelope
 
 ### Adapters
 
-实现 Ports：SQLite repository、QUIC transport、UDP/mDNS discovery、named pipe、Windows Service 和 User Agent。Adapter 的失败必须转换为稳定错误码，不把驱动细节泄露到 UI。
+实现 Ports：SQLite repository、QUIC transport、UDP/mDNS discovery、named pipe、Windows Service 和 User Agent。当前 SQLite command/audit adapter 已落地，其余 adapter 按 Phase 0 顺序接入。Adapter 的失败必须转换为稳定错误码，不把驱动细节泄露到 UI。
 
 ## 配置基线
 

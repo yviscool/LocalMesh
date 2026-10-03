@@ -28,13 +28,17 @@ type RetryPolicy struct {
 }
 
 type Envelope struct {
-	CommandID  string
-	Capability string
-	Target     Target
-	Name       string
-	Payload    []byte
-	Deadline   time.Time
-	Retry      RetryPolicy
+	CommandID      string
+	RequestID      string
+	IdempotencyKey string
+	ActorID        string
+	ClassroomID    string
+	Capability     string
+	Target         Target
+	Name           string
+	Payload        []byte
+	Deadline       time.Time
+	Retry          RetryPolicy
 }
 
 type ResultStatus string
@@ -46,10 +50,11 @@ const (
 )
 
 type Result struct {
-	Target Target
-	Status ResultStatus
-	Code   string
-	Error  string
+	CommandID string
+	Target    Target
+	Status    ResultStatus
+	Code      string
+	Error     string
 }
 
 func New(commandID, capability, name string, target Target, deadline time.Time, retry RetryPolicy) (Envelope, error) {
