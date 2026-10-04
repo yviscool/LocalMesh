@@ -53,6 +53,7 @@ func (s *Store) Migrate(ctx context.Context) error {
 	}{
 		{version: 1, name: "migrations/001_initial.sql"},
 		{version: 2, name: "migrations/002_runtime_state.sql"},
+		{version: 3, name: "migrations/003_multiplatform_defaults.sql"},
 	}
 	for _, migration := range migrations {
 		version, name := migration.version, migration.name
