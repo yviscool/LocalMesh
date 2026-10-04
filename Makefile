@@ -6,10 +6,10 @@ fmt:
 	@test -z "$$($(GO)fmt -l .)" || (echo "Go files are not formatted"; exit 1)
 
 test:
-	$(GO) test ./...
+	$(GO) test -timeout=5m ./...
 
 race:
-	$(GO) test -race -shuffle=on ./...
+	$(GO) test -race -shuffle=on -timeout=5m ./...
 
 vet:
 	$(GO) vet ./...
@@ -24,10 +24,10 @@ simulate:
 	$(GO) test -race -shuffle=on ./internal/simulation -run TestRunOneHundredAgents -count=1
 
 storage-test:
-	$(GO) test -race -shuffle=on ./internal/storage/sqlite -count=1
+	$(GO) test -race -shuffle=on -timeout=5m ./internal/storage/sqlite -count=1
 
 transport-test:
-	$(GO) test -race -shuffle=on ./internal/transport/... -count=1
+	$(GO) test -race -shuffle=on -timeout=5m ./internal/transport/... -count=1
 
 auth-test:
 	$(GO) test -race -shuffle=on ./internal/auth -count=1

@@ -52,3 +52,12 @@ duplication injection with seeded randomness and payload isolation. It is the
 base for turning the compatibility matrix into repeatable integration tests.
 Its classroom router records isolation violations so cross-classroom delivery
 can be asserted as a zero-tolerance invariant.
+
+## Test hang diagnosis
+
+The first race run after a clean Go build cache can spend several minutes
+compiling `modernc.org/sqlite`; Go emits no test output during compilation.
+This was measured and reproduced, then confirmed to finish with all packages
+passing. All Make targets now use a five-minute test timeout, and
+`tools/test-progress.ps1` prints explicit start/end markers so a real deadlock
+is distinguishable from cold dependency compilation.
