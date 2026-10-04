@@ -47,6 +47,11 @@ The endpoint boundary is represented by `Listener` and `ServeListener`.
 Non-Windows builds return an explicit unsupported error; Windows builds use a
 named-pipe listener while reusing the same framing and authorization layers.
 
+`internal/application/ipc` now converts a local IPC request into the existing
+protocol command envelope and application command envelope. It validates stable
+IDs, target kinds, deadlines, and idempotency fields before submission, then
+returns stable response codes for authorization and idempotency failures.
+
 `internal/simulation/network` provides deterministic latency, loss and
 duplication injection with seeded randomness and payload isolation. It is the
 base for turning the compatibility matrix into repeatable integration tests.

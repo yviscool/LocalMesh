@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"time"
 )
 
 const DefaultMaxMessage = 1 << 20
@@ -17,14 +18,19 @@ var (
 )
 
 type Request struct {
-	ID          string         `json:"request_id"`
-	SessionID   string         `json:"session_id"`
-	ClassroomID string         `json:"classroom_id"`
-	Capability  string         `json:"capability"`
-	Action      string         `json:"action"`
-	TargetKind  string         `json:"target_kind"`
-	TargetID    string         `json:"target_id"`
-	Payload     map[string]any `json:"payload,omitempty"`
+	ID             string         `json:"request_id"`
+	MessageID      string         `json:"message_id"`
+	CommandID      string         `json:"command_id"`
+	SenderID       string         `json:"sender_id"`
+	SessionID      string         `json:"session_id"`
+	ClassroomID    string         `json:"classroom_id"`
+	IdempotencyKey string         `json:"idempotency_key"`
+	Deadline       time.Time      `json:"deadline"`
+	Capability     string         `json:"capability"`
+	Action         string         `json:"action"`
+	TargetKind     string         `json:"target_kind"`
+	TargetID       string         `json:"target_id"`
+	Payload        map[string]any `json:"payload,omitempty"`
 }
 
 type Response struct {
