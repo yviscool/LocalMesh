@@ -3,6 +3,9 @@ package platform
 import (
 	"context"
 	"errors"
+	"io"
+
+	"localmesh/internal/transport/ipc"
 )
 
 type OS string
@@ -25,8 +28,8 @@ type Session interface {
 }
 
 type LocalEndpoint interface {
-	Listen(context.Context, string) error
-	Dial(context.Context, string) error
+	Listen(context.Context, string) (ipc.Listener, error)
+	Dial(context.Context, string) (io.ReadWriteCloser, error)
 }
 
 type Capabilities interface {

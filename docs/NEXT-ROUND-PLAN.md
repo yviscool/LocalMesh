@@ -18,6 +18,10 @@
 - Windows named pipe 补 ACL 和连接身份检查。
 - 三个平台共享 framing、request ID、deadline 和 capability recheck contract tests。
 
+当前进度：Linux/macOS Unix socket contract 已落地；Windows native endpoint
+仍需在 Windows CI 中完成 ACL 和身份绑定，当前会显式报告 unsupported，绝不
+静默回退到不安全的 loopback TCP。
+
 ### B. 启动组合与配置
 
 - `platform/common.RuntimeForCurrentOS` 改为注入真实 adapter。
