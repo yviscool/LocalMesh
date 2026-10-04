@@ -18,6 +18,7 @@
 
 ## 决策与执行
 
+- [NEXT-WAVE-PLAN.md](NEXT-WAVE-PLAN.md)：下一轮基础设施纵切、验收和发布顺序
 - [DECISIONS.md](DECISIONS.md)：已确认的架构决策
 - [PHASE-0-STATUS.md](PHASE-0-STATUS.md)：当前施工状态
 - [SKILLS.md](SKILLS.md)：项目级 agent skills 和调用规则

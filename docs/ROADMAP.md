@@ -42,3 +42,18 @@ Phase 0 进入业务开发前必须满足：
 4. SQLite 有 migration、外键、幂等唯一约束和审计追加约束。
 5. 本地 TCP/QUIC 与 named pipe 具备断线、超时、重放和权限拒绝测试。
 6. CI 运行 race、vet、格式、100 Agent 仿真和安全扫描。
+
+## 下一轮交付门
+
+Phase 0 只有在以下顺序全部通过后，才进入大规模控制业务：
+
+```text
+Session Recovery
+    -> Discovery Service
+    -> QUIC Control Transport
+    -> Windows Service IPC
+    -> Network Compatibility Lab
+    -> Phase 1 Control Plane
+```
+
+每一门都必须有：协议/接口契约、内存 fake、真实 adapter、故障测试、审计字段和 CI 验证。任何一门只完成“能跑”但没有恢复、权限和故障证据，都不能标记为完成。

@@ -24,10 +24,13 @@
 
 ## 下一步
 
-1. 为 SQLite repository 增加 pairing/member/session 的恢复查询和事务用例。
-2. 将 session authorization 与课堂成员、角色和 capability policy 接通。
-3. 增加 VLAN/客户端隔离和网络故障注入测试。
-4. 建立 Windows Service/User Agent 的 named pipe contract test。
+详细计划见 [NEXT-WAVE-PLAN.md](NEXT-WAVE-PLAN.md)。当前顺序：
+
+1. Session Recovery
+2. Discovery Service
+3. QUIC Control Transport
+4. Windows Service/User Agent IPC
+5. Network Compatibility Lab
 
 ## 当前验证
 
