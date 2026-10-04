@@ -25,6 +25,11 @@ func (UnixEndpoint) Listen(_ context.Context, address string) (ipc.Listener, err
 	if err != nil {
 		return nil, err
 	}
+	if err := os.Chmod(address, 0o600); err != nil {
+		_ = listener.Close()
+		_ = os.Remove(address)
+		return nil, err
+	}
 	return unixListener{listener: listener}, nil
 }
 

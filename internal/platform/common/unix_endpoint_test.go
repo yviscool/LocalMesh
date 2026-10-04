@@ -5,6 +5,7 @@ package common
 import (
 	"context"
 	"io"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -16,6 +17,13 @@ func TestUnixEndpointRoundTrip(t *testing.T) {
 	listener, err := endpoint.Listen(context.Background(), path)
 	if err != nil {
 		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("socket mode = %o, want 600", info.Mode().Perm())
 	}
 	defer listener.Close()
 	done := make(chan error, 1)
