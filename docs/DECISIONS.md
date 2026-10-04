@@ -8,9 +8,14 @@
 
 发现只生成待配对设备。加入课堂必须经过短码/二维码、预注册或教师审批，并创建可撤销的成员关系。
 
-## ADR-0003：Service 与 User Agent 分离
+## ADR-0003：平台 Service 与 User Agent 分离
 
-Windows Service 承担特权、策略和网络职责；User Agent 承担交互会话和 UI。两者通过受保护的本机 IPC 通信。
+各平台 Service/Daemon 承担特权、策略和网络职责；User Agent 承担交互会话和 UI。Windows 使用 named pipe，Linux/macOS 使用 Unix socket；两者都通过受保护的本机 IPC 通信。
+
+## ADR-0009：不维护旧版本向后兼容
+
+项目采用同版本整体升级策略。破坏性协议、Port 或配置变更在同一提交中
+更新所有仓库内调用方、迁移、测试和 CI；旧版本直接拒绝，不增加兼容层。
 
 ## ADR-0004：批量操作使用结果聚合
 

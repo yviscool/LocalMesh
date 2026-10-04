@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS devices (
     device_id TEXT PRIMARY KEY,
     machine_guid TEXT UNIQUE,
     hostname TEXT NOT NULL DEFAULT '',
-    platform TEXT NOT NULL DEFAULT 'windows',
+    platform TEXT NOT NULL DEFAULT 'unknown',
     agent_version TEXT NOT NULL DEFAULT '',
     public_key BLOB,
     status TEXT NOT NULL DEFAULT 'unknown',
