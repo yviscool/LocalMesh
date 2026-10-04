@@ -10,6 +10,7 @@ import (
 
 	"localmesh/internal/application"
 	"localmesh/internal/domain/command"
+	"localmesh/internal/domain/identity"
 	"localmesh/internal/domain/pairing"
 	"localmesh/internal/domain/session"
 	_ "modernc.org/sqlite"
@@ -181,8 +182,69 @@ func (s *Store) CloseSession(ctx context.Context, sessionID, reason string, clos
 	return nil
 }
 
+func parseTimestamp(value string) (time.Time, error) {
+	return time.Parse(time.RFC3339Nano, value)
+}
+
+func (s *Store) ListSessions(ctx context.Context, classroomID string) ([]application.SessionRecord, error) {
+	query := `SELECT session_id, device_id, classroom_id, transport, state, opened_at, last_seen_at, expires_at FROM sessions`
+	args := []any{}
+	if classroomID != "" {
+		query += ` WHERE classroom_id = ?`
+		args = append(args, classroomID)
+	}
+	query += ` ORDER BY device_id, opened_at DESC`
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list sessions: %w", err)
+	}
+	defer rows.Close()
+	result := make([]application.SessionRecord, 0)
+	for rows.Next() {
+		var value application.SessionRecord
+		var deviceID, state, openedAt, lastSeen, expires string
+		if err := rows.Scan(&value.ID, &deviceID, &value.ClassroomID, &value.Transport, &state, &openedAt, &lastSeen, &expires); err != nil {
+			return nil, fmt.Errorf("scan session: %w", err)
+		}
+		value.DeviceID = identity.DeviceID(deviceID)
+		value.State = session.State(state)
+		if value.OpenedAt, err = parseTimestamp(openedAt); err != nil {
+			return nil, fmt.Errorf("parse opened_at: %w", err)
+		}
+		if value.LastSeen, err = parseTimestamp(lastSeen); err != nil {
+			return nil, fmt.Errorf("parse last_seen_at: %w", err)
+		}
+		if value.ExpiresAt, err = parseTimestamp(expires); err != nil {
+			return nil, fmt.Errorf("parse expires_at: %w", err)
+		}
+		result = append(result, value)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate sessions: %w", err)
+	}
+	return result, nil
+}
+
+func (s *Store) FindMember(ctx context.Context, classroomID, memberID string) (application.MemberRecord, error) {
+	var value application.MemberRecord
+	var revoked sql.NullString
+	err := s.db.QueryRowContext(ctx, `SELECT classroom_id, member_id, role, revoked_at FROM classroom_members WHERE classroom_id = ? AND member_id = ?`, classroomID, memberID).Scan(&value.ClassroomID, &value.MemberID, &value.Role, &revoked)
+	if err != nil {
+		return value, err
+	}
+	if revoked.Valid && revoked.String != "" {
+		parsed, err := parseTimestamp(revoked.String)
+		if err != nil {
+			return value, fmt.Errorf("parse revoked_at: %w", err)
+		}
+		value.RevokedAt = &parsed
+	}
+	return value, nil
+}
+
 var _ application.CommandRepository = (*Store)(nil)
 var _ application.AuditSink = (*Store)(nil)
 var _ application.PairingRepository = (*Store)(nil)
 var _ application.MembershipRepository = (*Store)(nil)
 var _ application.SessionRepository = (*Store)(nil)
+var _ application.SessionRecoveryRepository = (*Store)(nil)

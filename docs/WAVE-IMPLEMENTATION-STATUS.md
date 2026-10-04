@@ -1,0 +1,34 @@
+# Infrastructure Wave Implementation Status
+
+This document records the first completed vertical slices from the next-wave plan.
+
+## Session recovery
+
+`internal/application/sessionrecovery` evaluates durable sessions after restart.
+It closes expired sessions, sessions whose classroom membership is missing or
+revoked, and older sessions when one device has multiple active records. Closed
+records are never reopened. Recovery does not authenticate a device; a fresh
+challenge-response exchange is still required.
+
+SQLite implements the recovery query contract in `internal/storage/sqlite` with
+timestamp parsing and deterministic newest-first ordering per device.
+
+## UDP discovery
+
+`internal/transport/discovery` accepts a versioned JSON announce packet over UDP.
+It enforces a packet-size limit, validates protocol version and stable DeviceID,
+suppresses duplicate announcements, and exits on context cancellation or socket
+closure. Accepted packets become short-lived discovery observations only; they
+do not create classroom membership or capabilities.
+
+## Verification
+
+Focused tests cover recovery decisions and UDP announce acceptance, rejection,
+duplicate suppression, and shutdown. The repository gate remains:
+
+```text
+go test -race -shuffle=on ./...
+go vet ./...
+gofmt -l .
+git diff --check
+```

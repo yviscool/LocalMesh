@@ -56,6 +56,32 @@ type SessionRepository interface {
 	CloseSession(context.Context, string, string, time.Time) error
 }
 
+// SessionRecord is the durable state needed to decide whether a session may
+// remain usable after a process restart. It deliberately excludes credentials.
+type SessionRecord struct {
+	ID          string
+	DeviceID    identity.DeviceID
+	ClassroomID string
+	Transport   string
+	State       session.State
+	OpenedAt    time.Time
+	LastSeen    time.Time
+	ExpiresAt   time.Time
+}
+
+type MemberRecord struct {
+	ClassroomID string
+	MemberID    string
+	Role        string
+	RevokedAt   *time.Time
+}
+
+type SessionRecoveryRepository interface {
+	ListSessions(context.Context, string) ([]SessionRecord, error)
+	FindMember(context.Context, string, string) (MemberRecord, error)
+	CloseSession(context.Context, string, string, time.Time) error
+}
+
 type AuditEvent struct {
 	EventID     string
 	OccurredAt  time.Time
