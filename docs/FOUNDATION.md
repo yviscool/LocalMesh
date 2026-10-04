@@ -67,6 +67,15 @@ active session
 
 实现 Ports：SQLite repository、QUIC transport、UDP/mDNS discovery、named pipe、Windows Service 和 User Agent。当前 SQLite command/audit adapter、loopback TCP contract 和 TLS/mTLS contract 已落地，其余 adapter 按 Phase 0 顺序接入。Adapter 的失败必须转换为稳定错误码，不把驱动细节泄露到 UI。明文 TCP 不能直接用于生产 LAN 控制。
 
+### 多平台边界
+
+`internal/platform` 定义 Service、Session、LocalEndpoint 和 Capabilities
+ports。Windows、Linux、macOS 实现只能位于对应 adapter 目录；Domain 和
+Application 不得导入平台 API 或使用运行时系统分支。`internal/capabilities`
+提供能力 descriptor registry 和 worker supervisor：能力包含版本、平台、
+组件边界、危险标记和审计动作，高风险能力通过可取消、可回收的独立 worker
+运行。
+
 ## 配置基线
 
 - `config.Default()` 提供安全默认值。
