@@ -32,3 +32,15 @@ go vet ./...
 gofmt -l .
 git diff --check
 ```
+
+## IPC and network lab foundations
+
+`internal/transport/ipc` now defines a bounded length-prefixed JSON contract
+for Service/User Agent adapters. It handles partial reads, oversized frames,
+request IDs, duplicate requests, capability fields, and explicit responses.
+The framing layer is transport-neutral so the Windows named-pipe endpoint can
+be added without changing the contract.
+
+`internal/simulation/network` provides deterministic latency, loss and
+duplication injection with seeded randomness and payload isolation. It is the
+base for turning the compatibility matrix into repeatable integration tests.
