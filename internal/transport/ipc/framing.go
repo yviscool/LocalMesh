@@ -17,10 +17,14 @@ var (
 )
 
 type Request struct {
-	ID         string         `json:"request_id"`
-	Capability string         `json:"capability"`
-	Action     string         `json:"action"`
-	Payload    map[string]any `json:"payload,omitempty"`
+	ID          string         `json:"request_id"`
+	SessionID   string         `json:"session_id"`
+	ClassroomID string         `json:"classroom_id"`
+	Capability  string         `json:"capability"`
+	Action      string         `json:"action"`
+	TargetKind  string         `json:"target_kind"`
+	TargetID    string         `json:"target_id"`
+	Payload     map[string]any `json:"payload,omitempty"`
 }
 
 type Response struct {
@@ -32,6 +36,27 @@ type Response struct {
 
 type Handler interface {
 	Handle(context.Context, Request) Response
+}
+
+type Authorizer interface {
+	Allow(context.Context, string, string, string, string, string) error
+}
+
+// CapabilityHandler makes the Service boundary repeat authorization checks even
+// when a request originated from a local user agent.
+type CapabilityHandler struct {
+	Authorizer Authorizer
+	Next       Handler
+}
+
+func (h CapabilityHandler) Handle(ctx context.Context, request Request) Response {
+	if h.Authorizer == nil || h.Next == nil {
+		return Response{ID: request.ID, Code: "ipc_not_configured"}
+	}
+	if err := h.Authorizer.Allow(ctx, request.SessionID, request.ClassroomID, request.Capability, request.TargetKind, request.TargetID); err != nil {
+		return Response{ID: request.ID, Code: "unauthorized"}
+	}
+	return h.Next.Handle(ctx, request)
 }
 
 func Write(w io.Writer, value any, max int) error {

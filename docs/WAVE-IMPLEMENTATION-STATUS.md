@@ -40,7 +40,11 @@ for Service/User Agent adapters. It handles partial reads, oversized frames,
 request IDs, duplicate requests, capability fields, and explicit responses.
 The framing layer is transport-neutral so the Windows named-pipe endpoint can
 be added without changing the contract.
+Every request can be re-authorized against its session, classroom, capability,
+and target scope before the privileged handler runs.
 
 `internal/simulation/network` provides deterministic latency, loss and
 duplication injection with seeded randomness and payload isolation. It is the
 base for turning the compatibility matrix into repeatable integration tests.
+Its classroom router records isolation violations so cross-classroom delivery
+can be asserted as a zero-tolerance invariant.

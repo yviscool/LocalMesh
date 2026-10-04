@@ -21,6 +21,33 @@ type Delivery struct {
 	Delay   time.Duration
 }
 
+type Router struct {
+	classrooms map[string]map[string]struct{}
+	violations int
+}
+
+func NewRouter() *Router { return &Router{classrooms: make(map[string]map[string]struct{})} }
+
+func (r *Router) Add(classroom, device string) {
+	if r.classrooms[classroom] == nil {
+		r.classrooms[classroom] = make(map[string]struct{})
+	}
+	r.classrooms[classroom][device] = struct{}{}
+}
+
+func (r *Router) Route(classroom, device string) bool {
+	allowed := false
+	if members := r.classrooms[classroom]; members != nil {
+		_, allowed = members[device]
+	}
+	if !allowed {
+		r.violations++
+	}
+	return allowed
+}
+
+func (r *Router) IsolationViolations() int { return r.violations }
+
 type FaultInjector struct {
 	config Config
 	random *rand.Rand
