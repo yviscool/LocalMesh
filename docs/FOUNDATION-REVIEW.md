@@ -5,9 +5,10 @@ place, but production readiness still has blocking native work.
 
 ## Findings
 
-1. **QUIC is not a complete control transport yet.** The current adapter opens a
-   stream and writes an envelope, but has no server accept loop, response/error
-   contract, peer certificate binding, or reconnect/idempotency integration.
+1. **QUIC is partially closed.** A server accept loop, envelope validation,
+   peer DeviceID binding, and handler dispatch now exist. Client acknowledgement,
+   certificate-to-DeviceID binding, and reconnect/idempotency integration remain
+   required before production release.
 2. **Windows IPC is an adapter boundary, not verified native security.** Named
    pipe ACLs and peer identity binding require a Windows runner test; the code
    must not be treated as secure solely because it compiles under a build tag.
