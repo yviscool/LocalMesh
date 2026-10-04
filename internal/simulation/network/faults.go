@@ -21,6 +21,35 @@ type Delivery struct {
 	Delay   time.Duration
 }
 
+type Scenario struct {
+	Loss       float64
+	Latency    time.Duration
+	Duplicates float64
+	Seed       int64
+}
+
+func RunScenario(ctx context.Context, config Config, messages [][]byte) (delivered, dropped, duplicated int, err error) {
+	injector, err := New(config)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	for _, message := range messages {
+		items, transmitErr := injector.Transmit(ctx, message)
+		if errors.Is(transmitErr, ErrDropped) {
+			dropped++
+			continue
+		}
+		if transmitErr != nil {
+			return delivered, dropped, duplicated, transmitErr
+		}
+		delivered += len(items)
+		if len(items) > 1 {
+			duplicated += len(items) - 1
+		}
+	}
+	return delivered, dropped, duplicated, nil
+}
+
 type Router struct {
 	classrooms map[string]map[string]struct{}
 	violations int

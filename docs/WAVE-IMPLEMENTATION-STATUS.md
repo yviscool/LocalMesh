@@ -58,6 +58,17 @@ base for turning the compatibility matrix into repeatable integration tests.
 Its classroom router records isolation violations so cross-classroom delivery
 can be asserted as a zero-tolerance invariant.
 
+The scenario runner now provides seeded loss/duplication runs for repeatable
+delivery counts; production transports remain unchanged.
+
+The QUIC control adapter is pinned to `github.com/quic-go/quic-go v0.54.1`,
+which remains compatible with the repository's Go 1.23 baseline. It validates
+the protocol envelope, binds the sender to the expected peer DeviceID, applies
+deadlines, and bounds concurrent streams.
+
+Windows CI now builds and tests the same contracts on `windows-latest` while
+Linux CI remains the primary race, vet, and simulation gate.
+
 ## Test hang diagnosis
 
 The first race run after a clean Go build cache can spend several minutes
