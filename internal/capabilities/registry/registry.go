@@ -27,6 +27,26 @@ type Registry struct {
 	values map[string]Descriptor
 }
 
+func Default(os platform.OS) (*Registry, error) {
+	r := New()
+	all := []platform.OS{platform.Windows, platform.Linux, platform.Darwin}
+	values := []Descriptor{
+		{ID: "classroom.control", Version: 1, Platforms: all, Component: "service", AuditAction: "classroom.control", EnabledByDefault: true},
+		{ID: "process.launch", Version: 1, Platforms: all, Component: "worker", AuditAction: "process.launch", EnabledByDefault: false},
+		{ID: "process.kill", Version: 1, Dangerous: true, Platforms: all, Component: "worker", AuditAction: "process.kill", EnabledByDefault: false},
+		{ID: "power.shutdown", Version: 1, Dangerous: true, Platforms: all, Component: "service", AuditAction: "power.shutdown", EnabledByDefault: false},
+	}
+	for _, value := range values {
+		if err := r.Register(value); err != nil {
+			return nil, err
+		}
+	}
+	if err := r.ValidatePlatform(os); err != nil {
+		return nil, err
+	}
+	return r, nil
+}
+
 func New() *Registry { return &Registry{values: map[string]Descriptor{}} }
 func (r *Registry) Register(value Descriptor) error {
 	if value.ID == "" || value.Version == 0 || value.Component == "" || value.AuditAction == "" {

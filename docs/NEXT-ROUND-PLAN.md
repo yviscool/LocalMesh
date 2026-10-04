@@ -2,6 +2,10 @@
 
 本轮以“不维护旧版本兼容层”为前提，直接把新的多平台契约接入启动和运行时。
 
+已完成的基石项：平台 Runtime 组合、Unix socket contract、跨平台默认
+Capability Registry、Worker 状态和健康检查契约。Windows named pipe 的
+真实 ACL/peer identity 仍需 Windows runner 和实验室证据。
+
 ## 目标
 
 1. Windows named pipe、Linux Unix socket、macOS Unix socket 统一实现 LocalEndpoint。

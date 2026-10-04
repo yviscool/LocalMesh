@@ -17,6 +17,9 @@ func TestSupervisorStartsAndStopsWorkers(t *testing.T) {
 	if err := s.Start(context.Background(), "screen.capture"); err != nil {
 		t.Fatal(err)
 	}
+	if s.State("screen.capture") != "running" {
+		t.Fatalf("state=%q", s.State("screen.capture"))
+	}
 	select {
 	case <-w.done:
 	case <-time.After(time.Second):
@@ -27,6 +30,9 @@ func TestSupervisorStartsAndStopsWorkers(t *testing.T) {
 	}
 	if s.Running("screen.capture") {
 		t.Fatal("worker still marked running after stop")
+	}
+	if s.State("screen.capture") != "stopped" {
+		t.Fatalf("state=%q", s.State("screen.capture"))
 	}
 }
 func TestBackoffCaps(t *testing.T) {

@@ -18,6 +18,7 @@ type Supervisor struct {
 	mu         sync.Mutex
 	running    map[string]record
 	generation map[string]uint64
+	states     map[string]string
 }
 
 type record struct {
@@ -26,7 +27,7 @@ type record struct {
 }
 
 func New(factory Factory) *Supervisor {
-	return &Supervisor{factory: factory, running: map[string]record{}, generation: map[string]uint64{}}
+	return &Supervisor{factory: factory, running: map[string]record{}, generation: map[string]uint64{}, states: map[string]string{}}
 }
 func (s *Supervisor) Start(ctx context.Context, id string) error {
 	if s.factory == nil || id == "" {
@@ -38,6 +39,7 @@ func (s *Supervisor) Start(ctx context.Context, id string) error {
 	}
 	runCtx, cancel := context.WithCancel(ctx)
 	s.mu.Lock()
+	s.states[id] = "starting"
 	if old, ok := s.running[id]; ok {
 		old.cancel()
 		_ = old.worker.Stop()
@@ -45,12 +47,18 @@ func (s *Supervisor) Start(ctx context.Context, id string) error {
 	s.generation[id]++
 	generation := s.generation[id]
 	s.running[id] = record{cancel: cancel, worker: worker}
+	s.states[id] = "running"
 	s.mu.Unlock()
 	go func() {
-		_ = worker.Run(runCtx)
+		err := worker.Run(runCtx)
 		s.mu.Lock()
 		if s.generation[id] == generation {
 			delete(s.running, id)
+			if err != nil && !errors.Is(err, context.Canceled) {
+				s.states[id] = "crashed"
+			} else {
+				s.states[id] = "stopped"
+			}
 		}
 		s.mu.Unlock()
 	}()
@@ -72,6 +80,7 @@ func (s *Supervisor) Stop(id string) error {
 	}
 	value.cancel()
 	_ = value.worker.Stop()
+	s.states[id] = "stopped"
 	delete(s.running, id)
 	return nil
 }
@@ -81,9 +90,12 @@ func (s *Supervisor) StopAll() {
 	for id, value := range s.running {
 		value.cancel()
 		_ = value.worker.Stop()
+		s.states[id] = "stopped"
 		delete(s.running, id)
 	}
 }
+
+func (s *Supervisor) State(id string) string { s.mu.Lock(); defer s.mu.Unlock(); return s.states[id] }
 func Backoff(attempt int) time.Duration {
 	if attempt < 1 {
 		attempt = 1
