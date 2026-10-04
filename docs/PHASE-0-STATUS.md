@@ -19,6 +19,7 @@
 - `transport/tls`：TLS 1.3 默认、ServerName 校验、握手超时、客户端证书和服务端 mTLS contract test。
 - `auth.Verifier`：Ed25519 公钥注册、随机 challenge、签名验证、过期和 replay 拒绝、公钥指纹。
 - `application/sessionauth.Service`：将 TLS 后的设备签名证明绑定到 SessionID，激活并持久化 Active Session。
+- `application/authorization.Service`：活跃 Session、课堂成员、角色 capability 和目标范围的默认拒绝授权。
 - 项目本地 skill 集合：位于 `.agents/skills/vendor/`。
 
 ## 下一步

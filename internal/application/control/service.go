@@ -52,7 +52,7 @@ func (s *Service) Submit(ctx context.Context, message protocol.Envelope, cmd com
 	if s.Authorizer == nil || s.Commands == nil || s.Audit == nil || s.Idempotency == nil {
 		return Outcome{}, errors.New("command service is not configured")
 	}
-	if err := s.Authorizer.Allow(ctx, message.SenderID, message.ClassroomID, cmd.Capability, cmd.Target); err != nil {
+	if err := s.Authorizer.Allow(ctx, message.SessionID, message.ClassroomID, cmd.Capability, cmd.Target); err != nil {
 		return Outcome{}, fmt.Errorf("authorize command: %w", err)
 	}
 	fingerprint := commandFingerprint(message, cmd)
