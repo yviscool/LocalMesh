@@ -10,6 +10,7 @@ import (
 
 var ErrDuplicate = errors.New("capability already registered")
 var ErrUnknown = errors.New("capability is not registered")
+var ErrUnsupported = errors.New("capability is unsupported on platform")
 
 type Descriptor struct {
 	ID               string
@@ -69,4 +70,19 @@ func (r *Registry) Supported(id string, os platform.OS) (bool, error) {
 		}
 	}
 	return false, nil
+}
+
+func (r *Registry) ValidatePlatform(os platform.OS) error {
+	for _, value := range r.List() {
+		if value.EnabledByDefault {
+			supported, err := r.Supported(value.ID, os)
+			if err != nil {
+				return err
+			}
+			if !supported {
+				return ErrUnsupported
+			}
+		}
+	}
+	return nil
 }

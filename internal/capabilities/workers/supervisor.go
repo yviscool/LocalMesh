@@ -14,13 +14,19 @@ type Worker interface {
 type Factory func(string) (Worker, error)
 
 type Supervisor struct {
-	factory Factory
-	mu      sync.Mutex
-	running map[string]context.CancelFunc
+	factory    Factory
+	mu         sync.Mutex
+	running    map[string]record
+	generation map[string]uint64
+}
+
+type record struct {
+	cancel context.CancelFunc
+	worker Worker
 }
 
 func New(factory Factory) *Supervisor {
-	return &Supervisor{factory: factory, running: map[string]context.CancelFunc{}}
+	return &Supervisor{factory: factory, running: map[string]record{}, generation: map[string]uint64{}}
 }
 func (s *Supervisor) Start(ctx context.Context, id string) error {
 	if s.factory == nil || id == "" {
@@ -32,30 +38,49 @@ func (s *Supervisor) Start(ctx context.Context, id string) error {
 	}
 	runCtx, cancel := context.WithCancel(ctx)
 	s.mu.Lock()
-	if old := s.running[id]; old != nil {
-		old()
+	if old, ok := s.running[id]; ok {
+		old.cancel()
+		_ = old.worker.Stop()
 	}
-	s.running[id] = cancel
+	s.generation[id]++
+	generation := s.generation[id]
+	s.running[id] = record{cancel: cancel, worker: worker}
 	s.mu.Unlock()
-	go func() { _ = worker.Run(runCtx); s.mu.Lock(); delete(s.running, id); s.mu.Unlock() }()
+	go func() {
+		_ = worker.Run(runCtx)
+		s.mu.Lock()
+		if s.generation[id] == generation {
+			delete(s.running, id)
+		}
+		s.mu.Unlock()
+	}()
 	return nil
+}
+
+func (s *Supervisor) Running(id string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, ok := s.running[id]
+	return ok
 }
 func (s *Supervisor) Stop(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	cancel := s.running[id]
-	if cancel == nil {
+	value, ok := s.running[id]
+	if !ok {
 		return nil
 	}
-	cancel()
+	value.cancel()
+	_ = value.worker.Stop()
 	delete(s.running, id)
 	return nil
 }
 func (s *Supervisor) StopAll() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for id, cancel := range s.running {
-		cancel()
+	for id, value := range s.running {
+		value.cancel()
+		_ = value.worker.Stop()
 		delete(s.running, id)
 	}
 }

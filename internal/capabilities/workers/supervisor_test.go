@@ -25,6 +25,9 @@ func TestSupervisorStartsAndStopsWorkers(t *testing.T) {
 	if err := s.Stop("screen.capture"); err != nil {
 		t.Fatal(err)
 	}
+	if s.Running("screen.capture") {
+		t.Fatal("worker still marked running after stop")
+	}
 }
 func TestBackoffCaps(t *testing.T) {
 	if Backoff(10) != time.Minute {

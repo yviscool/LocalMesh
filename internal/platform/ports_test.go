@@ -9,3 +9,9 @@ func TestSupportedOperatingSystemsAreExplicit(t *testing.T) {
 		}
 	}
 }
+
+func TestRuntimeRejectsIncompletePorts(t *testing.T) {
+	if err := (Runtime{}).Validate(); err == nil {
+		t.Fatal("incomplete runtime accepted")
+	}
+}

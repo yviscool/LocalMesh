@@ -34,4 +34,6 @@ func (f *FakeService) Stop(_ context.Context, name string) error {
 
 type FakeCapabilities struct{ SupportedNames map[string]bool }
 
-func (f FakeCapabilities) Supported(context.Context, string) (bool, error) { return false, nil }
+func (f FakeCapabilities) Supported(_ context.Context, name string) (bool, error) {
+	return f.SupportedNames[name], nil
+}

@@ -21,4 +21,10 @@ func TestRegistryValidatesAndListsCapabilities(t *testing.T) {
 	if _, err := r.Get("missing"); err != ErrUnknown {
 		t.Fatalf("unknown=%v", err)
 	}
+	if err := r.ValidatePlatform(platform.Linux); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.ValidatePlatform(platform.Windows); err != nil {
+		t.Fatal(err)
+	}
 }
