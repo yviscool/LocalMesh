@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -13,10 +15,11 @@ import (
 	"os/signal"
 	"runtime"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
-	"encoding/json"
+	"localmesh/internal/capabilities/audio"
 	"localmesh/internal/capabilities/filetransfer"
 	"localmesh/internal/capabilities/power"
 	"localmesh/internal/capabilities/registry"
@@ -40,21 +43,26 @@ const (
 )
 
 type AgentApp struct {
-	deviceID      identity.DeviceID
-	pubKey        ed25519.PublicKey
-	privKey       ed25519.PrivateKey
-	platformRT    platform.Runtime
-	capRegistry   *registry.Registry
-	supervisor    *workers.Supervisor
-	lockMgr       *screenlock.Manager
-	powerSvc      *power.Service
-	processMon    *restrictions.ProcessMonitor
-	fileRcvr      *filetransfer.Receiver
-	ipcListener   ipc.Listener
-	pipeAddress   string
-	discoveryAddr string
-	discoveryStop chan struct{}
-	releaseMutex  func()
+	mu               sync.RWMutex
+	deviceID         identity.DeviceID
+	pubKey           ed25519.PublicKey
+	privKey          ed25519.PrivateKey
+	platformRT       platform.Runtime
+	capRegistry      *registry.Registry
+	supervisor       *workers.Supervisor
+	lockMgr          *screenlock.Manager
+	powerSvc         *power.Service
+	processMon       *restrictions.ProcessMonitor
+	fileRcvr         *filetransfer.Receiver
+	offlineGuard     *watchdog.OfflineGuard
+	exitPasswordHash string
+	exitChan         chan struct{}
+	exitOnce         sync.Once
+	ipcListener      ipc.Listener
+	pipeAddress      string
+	discoveryAddr    string
+	discoveryStop    chan struct{}
+	releaseMutex     func()
 }
 
 func main() {
@@ -66,10 +74,65 @@ func main() {
 		flagInstallAutostart   = flag.Bool("install-autostart", false, "Configure agent to launch automatically on logon")
 		flagUninstallAutostart = flag.Bool("uninstall-autostart", false, "Remove autostart logon configuration")
 		flagNoMutex            = flag.Bool("no-single-instance", false, "Skip single-instance mutex check")
+
+		// Windows Service flags
+		flagServiceInstall   = flag.Bool("service-install", false, "Install agent as Windows LocalSystem service")
+		flagServiceUninstall = flag.Bool("service-uninstall", false, "Uninstall agent from Windows services")
+		flagServiceRun       = flag.Bool("service-run", false, "Run agent in Windows service mode under SCM")
+
+		// Exit password protection flags
+		flagExit         = flag.Bool("exit", false, "Request running agent to shut down (requires -password)")
+		flagPassword     = flag.String("password", "", "Password for -exit command")
+		flagExitPassword = flag.String("exit-password", DefaultExitPassword, "Set administrator exit password")
 	)
 	flag.Parse()
 
-	// Autostart management flags
+	// Platform runtime bootstrap
+	rt, err := common.RuntimeForCurrentOS()
+	if err != nil {
+		log.Fatalf("failed to initialize platform runtime: %v", err)
+	}
+
+	pipeAddr := *flagPipe
+	if pipeAddr == "" {
+		if rt.OS == platform.Windows {
+			pipeAddr = defaultWindowsPipe
+		} else {
+			pipeAddr = defaultUnixSocket
+		}
+	}
+
+	// 1. Handle remote exit request via IPC
+	if *flagExit {
+		if err := requestAgentExit(rt, pipeAddr, *flagPassword); err != nil {
+			log.Fatalf("Agent shutdown rejected: %v", err)
+		}
+		fmt.Println("Agent shutdown command accepted and processed successfully.")
+		return
+	}
+
+	// 2. Handle Windows Service Installation & Removal
+	if *flagServiceInstall {
+		execPath, err := os.Executable()
+		if err != nil {
+			log.Fatalf("failed to locate executable: %v", err)
+		}
+		if err := InstallService(execPath, []string{"-service-run"}); err != nil {
+			log.Fatalf("Service installation failed: %v", err)
+		}
+		fmt.Printf("Service %s installed successfully as LocalSystem.\n", ServiceName)
+		return
+	}
+
+	if *flagServiceUninstall {
+		if err := UninstallService(); err != nil {
+			log.Fatalf("Service uninstallation failed: %v", err)
+		}
+		fmt.Printf("Service %s uninstalled successfully.\n", ServiceName)
+		return
+	}
+
+	// 3. Autostart management flags
 	if *flagInstallAutostart {
 		execPath, err := os.Executable()
 		if err != nil {
@@ -96,13 +159,40 @@ func main() {
 		return
 	}
 
-	// Platform runtime bootstrap
-	rt, err := common.RuntimeForCurrentOS()
-	if err != nil {
-		log.Fatalf("failed to initialize platform runtime: %v", err)
+	// 4. Windows Service Execution Mode
+	if *flagServiceRun || IsWindowsService() {
+		log.Printf("Starting %s as Windows Service...", ServiceName)
+		var app *AgentApp
+		err := RunService(func(svcCtx context.Context) error {
+			var initErr error
+			app, initErr = NewAgentApp(rt, *flagID, pipeAddr, *flagDiscoveryAddr, nil)
+			if initErr != nil {
+				return initErr
+			}
+			app.SetExitPassword(*flagExitPassword)
+			if err := app.Start(svcCtx, *flagDiscovery); err != nil {
+				return err
+			}
+			go func() {
+				select {
+				case <-svcCtx.Done():
+				case <-app.ExitChan():
+				}
+				app.Stop()
+			}()
+			return nil
+		}, func() {
+			if app != nil {
+				app.Stop()
+			}
+		})
+		if err != nil {
+			log.Fatalf("Windows service error: %v", err)
+		}
+		return
 	}
 
-	// Single instance enforcement
+	// 5. Interactive Foreground Execution Mode
 	var releaseMutex func()
 	if !*flagNoMutex && rt.OS == platform.Windows {
 		var err error
@@ -116,19 +206,11 @@ func main() {
 		_ = watchdog.HardenProcessDACL(uint32(os.Getpid()))
 	}
 
-	pipeAddr := *flagPipe
-	if pipeAddr == "" {
-		if rt.OS == platform.Windows {
-			pipeAddr = defaultWindowsPipe
-		} else {
-			pipeAddr = defaultUnixSocket
-		}
-	}
-
 	app, err := NewAgentApp(rt, *flagID, pipeAddr, *flagDiscoveryAddr, releaseMutex)
 	if err != nil {
 		log.Fatalf("failed to initialize agent: %v", err)
 	}
+	app.SetExitPassword(*flagExitPassword)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
@@ -137,14 +219,56 @@ func main() {
 		log.Fatalf("agent error: %v", err)
 	}
 
-	<-ctx.Done()
+	select {
+	case <-ctx.Done():
+		log.Println("Received termination signal.")
+	case <-app.ExitChan():
+		log.Println("Authorized administrator exit triggered.")
+	}
+
 	log.Println("Shutting down LocalMesh Student Agent gracefully...")
 	app.Stop()
 	log.Println("LocalMesh Student Agent stopped.")
 }
 
+func requestAgentExit(rt platform.Runtime, pipeAddr, password string) error {
+	dialCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	conn, err := rt.Endpoint.Dial(dialCtx, pipeAddr)
+	if err != nil {
+		return fmt.Errorf("dial agent endpoint (%s): %w", pipeAddr, err)
+	}
+	defer conn.Close()
+
+	req := ipc.Request{
+		ID:        fmt.Sprintf("exit-%d", time.Now().UnixNano()),
+		MessageID: "msg-exit",
+		Action:    "agent.exit",
+		Payload: map[string]any{
+			"password": password,
+		},
+	}
+	if err := ipc.Write(conn, req, ipc.DefaultMaxMessage); err != nil {
+		return fmt.Errorf("send exit request: %w", err)
+	}
+
+	var resp ipc.Response
+	if err := ipc.Read(conn, &resp, ipc.DefaultMaxMessage); err != nil {
+		return fmt.Errorf("read exit response: %w", err)
+	}
+
+	if !resp.OK {
+		errMsg := resp.Code
+		if pErr, ok := resp.Payload["error"].(string); ok && pErr != "" {
+			errMsg = pErr
+		}
+		return errors.New(errMsg)
+	}
+	return nil
+}
+
 func NewAgentApp(rt platform.Runtime, customID string, pipeAddr, discoveryAddr string, releaseMutex func()) (*AgentApp, error) {
-	// Stable device identity
 	var devID identity.DeviceID
 	if customID != "" {
 		var err error
@@ -192,22 +316,53 @@ func NewAgentApp(rt platform.Runtime, customID string, pipeAddr, discoveryAddr s
 	procMon := restrictions.NewProcessMonitor(&simpleProcessController{}, nil)
 	fileRcvr := filetransfer.NewReceiver()
 
+	offlineGuard := watchdog.NewOfflineGuard(lockMgr, watchdog.DefaultOfflineGuardConfig())
+
 	return &AgentApp{
-		deviceID:      devID,
-		pubKey:        pub,
-		privKey:       priv,
-		platformRT:    rt,
-		capRegistry:   capReg,
-		supervisor:    sup,
-		lockMgr:       lockMgr,
-		powerSvc:      powerSvc,
-		processMon:    procMon,
-		fileRcvr:      fileRcvr,
-		pipeAddress:   pipeAddr,
-		discoveryAddr: discoveryAddr,
-		discoveryStop: make(chan struct{}),
-		releaseMutex:  releaseMutex,
+		deviceID:         devID,
+		pubKey:           pub,
+		privKey:          priv,
+		platformRT:       rt,
+		capRegistry:      capReg,
+		supervisor:       sup,
+		lockMgr:          lockMgr,
+		powerSvc:         powerSvc,
+		processMon:       procMon,
+		fileRcvr:         fileRcvr,
+		offlineGuard:     offlineGuard,
+		exitPasswordHash: HashPassword(DefaultExitPassword),
+		exitChan:         make(chan struct{}),
+		pipeAddress:      pipeAddr,
+		discoveryAddr:    discoveryAddr,
+		discoveryStop:    make(chan struct{}),
+		releaseMutex:     releaseMutex,
 	}, nil
+}
+
+// SetExitPassword updates the administrator exit password or hash.
+func (a *AgentApp) SetExitPassword(pwd string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.exitPasswordHash = HashPassword(pwd)
+}
+
+// VerifyExitPassword validates the candidate password against the current password hash.
+func (a *AgentApp) VerifyExitPassword(candidate string) bool {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return VerifyExitPassword(candidate, a.exitPasswordHash)
+}
+
+// ExitChan returns a channel that is closed when an authorized exit is requested.
+func (a *AgentApp) ExitChan() <-chan struct{} {
+	return a.exitChan
+}
+
+// TriggerExit initiates an authorized shutdown.
+func (a *AgentApp) TriggerExit() {
+	a.exitOnce.Do(func() {
+		close(a.exitChan)
+	})
 }
 
 func (a *AgentApp) Start(ctx context.Context, enableDiscovery bool) error {
@@ -223,12 +378,43 @@ func (a *AgentApp) Start(ctx context.Context, enableDiscovery bool) error {
 
 	go a.serveIPC(ctx)
 
-	// 2. Start UDP Discovery Broadcaster
+	// 2. Start offline watchdog
+	if a.offlineGuard != nil {
+		a.offlineGuard.Start(ctx)
+	}
+
+	// 3. Start UDP Discovery Broadcaster
 	if enableDiscovery {
 		go a.startDiscoveryAnnouncer(ctx)
 	}
 
+	// 4. Start background classroom audio stream listener & low-latency player
+	go a.startAudioReceiver(ctx)
+
 	return nil
+}
+
+func (a *AgentApp) startAudioReceiver(ctx context.Context) {
+	receiver, err := audio.NewReceiver(audio.ReceiverConfig{
+		ListenAddr: audio.DefaultAudioMulticastAddr,
+	})
+	if err != nil {
+		log.Printf("[Audio] Background receiver setup skipped: %v", err)
+		return
+	}
+	defer receiver.Close()
+
+	player := audio.NewPlayer(audio.DefaultAudioFormat)
+	if err := player.Start(ctx); err != nil {
+		log.Printf("[Audio] Background player start failed: %v", err)
+		return
+	}
+	defer player.Stop()
+
+	log.Printf("[Audio] Listening for classroom audio on %s", audio.DefaultAudioMulticastAddr)
+	if err := receiver.Stream(ctx, player); err != nil && !errors.Is(err, context.Canceled) {
+		log.Printf("[Audio] Stream finished: %v", err)
+	}
 }
 
 func (a *AgentApp) Stop() {
@@ -238,6 +424,10 @@ func (a *AgentApp) Stop() {
 		default:
 			close(a.discoveryStop)
 		}
+	}
+
+	if a.offlineGuard != nil {
+		a.offlineGuard.Stop()
 	}
 
 	if a.ipcListener != nil {
@@ -272,21 +462,98 @@ func (a *AgentApp) serveIPC(ctx context.Context) {
 
 		go func(c io.ReadWriteCloser) {
 			defer c.Close()
-			var req ipc.Request
-			if err := ipc.Read(c, &req, ipc.DefaultMaxMessage); err != nil {
-				return
-			}
+			for {
+				var req ipc.Request
+				if err := ipc.Read(c, &req, ipc.DefaultMaxMessage); err != nil {
+					return
+				}
 
-			resp := ipc.Response{
-				ID:   req.ID,
-				OK:   true,
-				Code: "ok",
-				Payload: map[string]any{
-					"device_id": string(a.deviceID),
-					"timestamp": time.Now().UTC().Format(time.RFC3339),
-				},
+				switch req.Action {
+				case "agent.exit":
+					pwd, _ := req.Payload["password"].(string)
+					if !a.VerifyExitPassword(pwd) {
+						resp := ipc.Response{
+							ID:   req.ID,
+							OK:   false,
+							Code: "forbidden",
+							Payload: map[string]any{
+								"error": "invalid exit password, permission denied",
+							},
+						}
+						_ = ipc.Write(c, resp, ipc.DefaultMaxMessage)
+						continue
+					}
+					resp := ipc.Response{
+						ID:   req.ID,
+						OK:   true,
+						Code: "ok",
+						Payload: map[string]any{
+							"status": "shutting_down",
+						},
+					}
+					_ = ipc.Write(c, resp, ipc.DefaultMaxMessage)
+					go func() {
+						time.Sleep(100 * time.Millisecond)
+						a.TriggerExit()
+					}()
+					return
+
+				case "agent.heartbeat":
+					if a.offlineGuard != nil {
+						a.offlineGuard.RecordHeartbeat()
+					}
+					resp := ipc.Response{
+						ID:   req.ID,
+						OK:   true,
+						Code: "ok",
+						Payload: map[string]any{
+							"heartbeat_recorded": true,
+						},
+					}
+					_ = ipc.Write(c, resp, ipc.DefaultMaxMessage)
+
+				case "agent.session.start":
+					sessID, _ := req.Payload["session_id"].(string)
+					if a.offlineGuard != nil {
+						a.offlineGuard.EnterSession(sessID)
+					}
+					resp := ipc.Response{
+						ID:   req.ID,
+						OK:   true,
+						Code: "ok",
+						Payload: map[string]any{
+							"session_started": sessID,
+						},
+					}
+					_ = ipc.Write(c, resp, ipc.DefaultMaxMessage)
+
+				case "agent.session.end":
+					if a.offlineGuard != nil {
+						a.offlineGuard.LeaveSession()
+					}
+					resp := ipc.Response{
+						ID:   req.ID,
+						OK:   true,
+						Code: "ok",
+						Payload: map[string]any{
+							"session_ended": true,
+						},
+					}
+					_ = ipc.Write(c, resp, ipc.DefaultMaxMessage)
+
+				default:
+					resp := ipc.Response{
+						ID:   req.ID,
+						OK:   true,
+						Code: "ok",
+						Payload: map[string]any{
+							"device_id": string(a.deviceID),
+							"timestamp": time.Now().UTC().Format(time.RFC3339),
+						},
+					}
+					_ = ipc.Write(c, resp, ipc.DefaultMaxMessage)
+				}
 			}
-			_ = ipc.Write(c, resp, ipc.DefaultMaxMessage)
 		}(conn)
 	}
 }

@@ -15,6 +15,10 @@ var ChunkMagic = [4]byte{'L', 'M', 'B', 'C'}
 const (
 	CurrentChunkVersion uint8 = 1
 
+	// Chunk flags
+	FlagNone      uint8 = 0
+	FlagFECParity uint8 = 0x01
+
 	// Chunk header sizes and network constraints.
 	// MTU <= 1400 bytes to prevent IP-level fragmentation across standard LAN/WiFi switches.
 	MaxPacketSize     = 1400
@@ -59,6 +63,7 @@ type PacketChunk struct {
 	Height         int       `json:"height"`
 	ChunkIndex     int       `json:"chunk_index"`
 	TotalChunks    int       `json:"total_chunks"`
+	Flags          uint8     `json:"flags,omitempty"`
 	CRC32          uint32    `json:"crc32"`
 	Payload        []byte    `json:"payload"`
 }
@@ -83,7 +88,7 @@ func (c *PacketChunk) MarshalBinary() ([]byte, error) {
 	buf := make([]byte, totalLen)
 	copy(buf[0:4], ChunkMagic[:])
 	buf[4] = CurrentChunkVersion
-	buf[5] = 0 // Flags (reserved)
+	buf[5] = c.Flags
 
 	binary.BigEndian.PutUint64(buf[6:14], c.Sequence)
 	binary.BigEndian.PutUint64(buf[14:22], uint64(c.Timestamp.UnixNano()))
@@ -115,6 +120,7 @@ func (c *PacketChunk) UnmarshalBinary(data []byte) error {
 		return ErrInvalidMagic
 	}
 
+	c.Flags = data[5]
 	c.Sequence = binary.BigEndian.Uint64(data[6:14])
 	tsNano := int64(binary.BigEndian.Uint64(data[14:22]))
 	c.Timestamp = time.Unix(0, tsNano)
@@ -222,6 +228,7 @@ type pendingFrame struct {
 	totalChunks    int
 	receivedCount  int
 	chunks         map[int][]byte
+	parityChunks   []PacketChunk
 	firstSeen      time.Time
 	lastUpdated    time.Time
 }
@@ -254,13 +261,18 @@ func NewFrameReassembler(timeout time.Duration) *FrameReassembler {
 // 1. Validates chunk parameters and verifies CRC32 checksum (discards on mismatch).
 // 2. Evicts expired in-progress frames.
 // 3. Assembles chunk into its corresponding frame slot.
-// 4. If all chunks for the frame have arrived, returns the reassembled ScreenFrame.
+// 4. If parity chunks are present and data chunks are missing, applies FEC recovery.
+// 5. If all chunks for the frame have arrived or been recovered, returns the reassembled ScreenFrame.
 func (r *FrameReassembler) AddChunk(chunk PacketChunk) (*ScreenFrame, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	// 1. Validation & CRC Check
-	if chunk.TotalChunks <= 0 || chunk.ChunkIndex < 0 || chunk.ChunkIndex >= chunk.TotalChunks {
+	isParity := chunk.Flags&FlagFECParity != 0
+	if chunk.TotalChunks <= 0 || chunk.ChunkIndex < 0 {
+		return nil, ErrInvalidChunk
+	}
+	if !isParity && chunk.ChunkIndex >= chunk.TotalChunks {
 		return nil, ErrInvalidChunk
 	}
 	if !chunk.VerifyCRC() {
@@ -288,6 +300,7 @@ func (r *FrameReassembler) AddChunk(chunk PacketChunk) (*ScreenFrame, error) {
 			height:         chunk.Height,
 			totalChunks:    chunk.TotalChunks,
 			chunks:         make(map[int][]byte, chunk.TotalChunks),
+			parityChunks:   nil,
 			firstSeen:      now,
 			lastUpdated:    now,
 		}
@@ -300,15 +313,32 @@ func (r *FrameReassembler) AddChunk(chunk PacketChunk) (*ScreenFrame, error) {
 		pf.lastUpdated = now
 	}
 
-	// Store chunk if not already present (duplicate packet protection)
-	if _, alreadyHave := pf.chunks[chunk.ChunkIndex]; !alreadyHave {
-		pf.chunks[chunk.ChunkIndex] = chunk.Payload
-		pf.receivedCount++
+	// Store chunk according to whether it is a data chunk or parity chunk
+	if !isParity {
+		if _, alreadyHave := pf.chunks[chunk.ChunkIndex]; !alreadyHave {
+			pf.chunks[chunk.ChunkIndex] = chunk.Payload
+			pf.receivedCount++
+		}
+	} else {
+		alreadyHaveParity := false
+		for _, p := range pf.parityChunks {
+			if p.ChunkIndex == chunk.ChunkIndex {
+				alreadyHaveParity = true
+				break
+			}
+		}
+		if !alreadyHaveParity {
+			pf.parityChunks = append(pf.parityChunks, chunk)
+		}
 	}
 
-	// 4. Check if complete
+	// 4. If missing data chunks and parity chunks exist, attempt FEC recovery
+	if pf.receivedCount < pf.totalChunks && len(pf.parityChunks) > 0 {
+		r.tryFECRecoveryLocked(pf)
+	}
+
+	// 5. Check if frame is complete
 	if pf.receivedCount == pf.totalChunks {
-		// Reassemble full payload in sequential chunk order
 		totalLen := 0
 		for i := 0; i < pf.totalChunks; i++ {
 			totalLen += len(pf.chunks[i])
@@ -338,6 +368,88 @@ func (r *FrameReassembler) AddChunk(chunk PacketChunk) (*ScreenFrame, error) {
 	}
 
 	return nil, nil
+}
+
+// tryFECRecoveryLocked inspects received parity chunks and recovers missing data chunks in each FEC group.
+func (r *FrameReassembler) tryFECRecoveryLocked(pf *pendingFrame) {
+	for _, p := range pf.parityChunks {
+		var hdr FECHeader
+		if err := hdr.UnmarshalBinary(p.Payload); err != nil {
+			continue
+		}
+
+		start := int(hdr.StartChunk)
+		k := int(hdr.DataCount)
+		m := int(hdr.TotalParity)
+
+		var missingIndices []int
+		for i := 0; i < k; i++ {
+			idx := start + i
+			if _, ok := pf.chunks[idx]; !ok {
+				missingIndices = append(missingIndices, i)
+			}
+		}
+
+		if len(missingIndices) == 0 {
+			continue // All data chunks in this group are already present
+		}
+
+		// Collect all parity shards for this group
+		groupParities := make(map[int][]byte)
+		for _, pc := range pf.parityChunks {
+			var curHdr FECHeader
+			if err := curHdr.UnmarshalBinary(pc.Payload); err == nil && curHdr.GroupIndex == hdr.GroupIndex {
+				hdrSize := FECHeaderFixedSize + int(curHdr.DataCount)*4 + int(curHdr.DataCount)*2
+				if len(pc.Payload) >= hdrSize {
+					groupParities[int(curHdr.ParityIndex)] = pc.Payload[hdrSize:]
+				}
+			}
+		}
+
+		if len(missingIndices) > len(groupParities) {
+			continue // Not enough parity shards to reconstruct this group
+		}
+
+		// Prepare shards array for FECDecoder
+		shards := make([][]byte, k+m)
+		for i := 0; i < k; i++ {
+			idx := start + i
+			if data, ok := pf.chunks[idx]; ok {
+				padded := make([]byte, hdr.MaxChunkLen)
+				copy(padded, data)
+				shards[i] = padded
+			}
+		}
+		for pIdx, pData := range groupParities {
+			if pIdx < m {
+				padded := make([]byte, hdr.MaxChunkLen)
+				copy(padded, pData)
+				shards[k+pIdx] = padded
+			}
+		}
+
+		decoder, err := NewFECDecoder(k, m)
+		if err != nil {
+			continue
+		}
+
+		if err := decoder.DecodeWithCRC(shards, hdr.DataCRCs); err != nil {
+			continue
+		}
+
+		// Reconstructed successfully: put back into pf.chunks
+		for _, missingIdx := range missingIndices {
+			origLen := int(hdr.ChunkSizes[missingIdx])
+			if origLen > len(shards[missingIdx]) {
+				origLen = len(shards[missingIdx])
+			}
+			data := make([]byte, origLen)
+			copy(data, shards[missingIdx][:origLen])
+
+			pf.chunks[start+missingIdx] = data
+			pf.receivedCount++
+		}
+	}
 }
 
 // EvictExpired removes in-progress frames that have exceeded the timeout window.

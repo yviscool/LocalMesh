@@ -27,6 +27,7 @@ type MulticastSenderConfig struct {
 	TargetAddr string         // e.g. "239.255.42.99:8899" or "127.0.0.1:8899"
 	Conn       net.PacketConn // Injected PacketConn for testing or non-standard interfaces
 	ChunkSize  int            // Max payload size per chunk (default: 1200)
+	FEC        FECConfig      // Optional Forward Error Correction configuration
 }
 
 // MulticastSender distributes ScreenFrames and PacketChunks over UDP multicast or broadcast.
@@ -35,6 +36,7 @@ type MulticastSender struct {
 	conn       net.PacketConn
 	targetAddr net.Addr
 	chunkSize  int
+	fecConfig  FECConfig
 	ownsConn   bool
 	closed     bool
 }
@@ -75,11 +77,13 @@ func NewMulticastSender(cfg MulticastSenderConfig) (*MulticastSender, error) {
 		conn:       conn,
 		targetAddr: dstAddr,
 		chunkSize:  chunkSize,
+		fecConfig:  cfg.FEC,
 		ownsConn:   ownsConn,
 	}, nil
 }
 
 // SendFrame chunks and transmits a complete ScreenFrame over UDP.
+// If FEC is enabled, redundant parity chunks are generated and transmitted alongside data chunks.
 func (s *MulticastSender) SendFrame(ctx context.Context, frame ScreenFrame) error {
 	s.mu.Lock()
 	if s.closed {
@@ -89,6 +93,7 @@ func (s *MulticastSender) SendFrame(ctx context.Context, frame ScreenFrame) erro
 	conn := s.conn
 	targetAddr := s.targetAddr
 	chunkSize := s.chunkSize
+	fec := s.fecConfig
 	s.mu.Unlock()
 
 	chunks, err := ChunkFrame(frame, chunkSize)
@@ -96,7 +101,20 @@ func (s *MulticastSender) SendFrame(ctx context.Context, frame ScreenFrame) erro
 		return fmt.Errorf("chunk frame failed: %w", err)
 	}
 
-	for _, chunk := range chunks {
+	allChunks := chunks
+	if fec.Enabled && fec.DataShards > 0 && fec.ParityShards > 0 {
+		parityChunks, err := BuildFECParityChunks(chunks, fec.DataShards, fec.ParityShards)
+		if err != nil {
+			return fmt.Errorf("build fec parity chunks failed: %w", err)
+		}
+		if len(parityChunks) > 0 {
+			allChunks = make([]PacketChunk, 0, len(chunks)+len(parityChunks))
+			allChunks = append(allChunks, chunks...)
+			allChunks = append(allChunks, parityChunks...)
+		}
+	}
+
+	for _, chunk := range allChunks {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -112,6 +130,20 @@ func (s *MulticastSender) SendFrame(ctx context.Context, frame ScreenFrame) erro
 	}
 
 	return nil
+}
+
+// FECConfig returns the sender's current FEC settings.
+func (s *MulticastSender) FECConfig() FECConfig {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.fecConfig
+}
+
+// SetFECConfig updates the FEC configuration on the sender.
+func (s *MulticastSender) SetFECConfig(cfg FECConfig) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.fecConfig = cfg
 }
 
 // SendChunk sends an individual PacketChunk over UDP.

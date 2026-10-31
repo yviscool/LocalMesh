@@ -295,6 +295,7 @@ func (r *Runner) buildCommand(ctx context.Context, req ScriptExecutionRequest) (
 		case ScriptTypePowerShell:
 			return exec.CommandContext(ctx,
 				"powershell.exe",
+				"-NoLogo",
 				"-NoProfile",
 				"-NonInteractive",
 				"-ExecutionPolicy", "Bypass",

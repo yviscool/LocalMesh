@@ -162,6 +162,8 @@
     </div>
     <div class="action-bar">
       <button class="primary" onclick="openBroadcastModal()">📢 屏幕广播</button>
+      <button id="audioSyncBtn" style="border:1px solid #10b981; color:#34d399;" onclick="toggleAudioSync()">🎙️ 伴音同传: 关</button>
+      <button id="channelBtn" style="border:1px solid #6366f1; color:#a5b4fc;" onclick="openChannelModal()">📡 机房频道: <span id="currentChannelBadge">1</span></button>
       <button class="purple" onclick="openWhiteboardModal()">🎨 电子画板</button>
       <button class="warning" onclick="openLockModal()">🔒 黑屏肃静</button>
       <button onclick="sendUnlock()">🔓 一键解锁</button>
@@ -448,6 +450,32 @@
       </div>
       <div class="modal-actions">
         <button onclick="closeModal('firewallModal')">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 机房频道隔离设置模态框 -->
+  <div class="modal-overlay" id="channelModal">
+    <div class="modal">
+      <div class="modal-title">📡 机房频道逻辑隔离与多班级配置</div>
+      <p style="font-size:0.85rem; color:var(--text-muted);">
+        同一交换机下支持 1~255 频道隔离，自动派生独立组播地址与机房防串流指纹：
+      </p>
+      <div style="display:flex; flex-direction:column; gap:8px;">
+        <label style="font-size:0.85rem;">选择机房频道 (1~255):</label>
+        <input type="number" id="inputChannelID" min="1" max="255" value="1">
+        <div class="stat-badge">
+          <span>当前组播画面频道:</span>
+          <span id="screenMulticastAddr">239.255.42.1:8899</span>
+        </div>
+        <div class="stat-badge">
+          <span>当前音频同传组播:</span>
+          <span id="audioMulticastAddr">239.255.42.1:8900</span>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button onclick="closeModal('channelModal')">取消</button>
+        <button class="primary" onclick="submitChannelChange()">保存并切换频道</button>
       </div>
     </div>
   </div>
@@ -742,9 +770,85 @@
       input.value = '';
     }
 
+    async function toggleAudioSync() {
+      const btn = document.getElementById('audioSyncBtn');
+      const isStreaming = btn.textContent.includes("开");
+      if (isStreaming) {
+        await fetch('/api/v1/audio/stop', { method: 'POST' });
+        btn.textContent = "🎙️ 伴音同传: 关";
+        btn.style.color = "#34d399";
+        btn.style.backgroundColor = "transparent";
+      } else {
+        const res = await fetch('/api/v1/audio/start', { method: 'POST' });
+        if (res.ok) {
+          btn.textContent = "🎙️ 伴音同传: 开 (WASAPI)";
+          btn.style.color = "#fff";
+          btn.style.backgroundColor = "#059669";
+        }
+      }
+    }
+
+    async function checkAudioStatus() {
+      try {
+        const res = await fetch('/api/v1/audio/status');
+        if (res.ok) {
+          const data = await res.json();
+          const btn = document.getElementById('audioSyncBtn');
+          if (data.streaming) {
+            btn.textContent = "🎙️ 伴音同传: 开 (WASAPI)";
+            btn.style.color = "#fff";
+            btn.style.backgroundColor = "#059669";
+          } else {
+            btn.textContent = "🎙️ 伴音同传: 关";
+            btn.style.color = "#34d399";
+            btn.style.backgroundColor = "transparent";
+          }
+        }
+      } catch (_) {}
+    }
+
+    async function refreshChannel() {
+      try {
+        const res = await fetch('/api/v1/classroom/channel');
+        if (res.ok) {
+          const data = await res.json();
+          document.getElementById('currentChannelBadge').textContent = data.channel_id;
+          document.getElementById('inputChannelID').value = data.channel_id;
+          document.getElementById('screenMulticastAddr').textContent = data.screen_multicast;
+          document.getElementById('audioMulticastAddr').textContent = data.audio_multicast;
+        }
+      } catch (_) {}
+    }
+
+    function openChannelModal() {
+      refreshChannel();
+      openModal('channelModal');
+    }
+
+    async function submitChannelChange() {
+      const ch = parseInt(document.getElementById('inputChannelID').value, 10);
+      if (isNaN(ch) || ch < 1 || ch > 255) {
+        alert("请输入合法的机房频道 (1~255)！");
+        return;
+      }
+      const res = await fetch('/api/v1/classroom/channel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ channel_id: ch })
+      });
+      if (res.ok) {
+        closeModal('channelModal');
+        await refreshChannel();
+        alert(`机房频道已成功切换为 Channel ${ch}，防跨机房串流已生效！`);
+      }
+    }
+
     // 初始化轮询
     refreshData();
+    checkAudioStatus();
+    refreshChannel();
     setInterval(refreshData, 3000);
+    setInterval(checkAudioStatus, 5000);
   </script>
 </body>
 </html>

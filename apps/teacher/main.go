@@ -41,15 +41,18 @@ type TeacherApp struct {
 	udpServer    *udpdiscovery.Server
 	apiServer    *APIServer
 	httpServer   *http.Server
+	floatingBar  *FloatingBar
+	annotator    *DesktopAnnotator
 	releaseMutex func()
 }
 
 func main() {
 	var (
-		flagHTTP      = flag.String("http", defaultHTTPListen, "HTTP web console listen address")
-		flagDiscovery = flag.String("discovery", defaultDiscoveryListen, "UDP discovery listener address")
-		flagDB        = flag.String("db", "data/teacher.db", "SQLite database path")
-		flagNoMutex   = flag.Bool("no-single-instance", false, "Skip single-instance mutex check")
+		flagHTTP        = flag.String("http", defaultHTTPListen, "HTTP web console listen address")
+		flagDiscovery   = flag.String("discovery", defaultDiscoveryListen, "UDP discovery listener address")
+		flagDB          = flag.String("db", "data/teacher.db", "SQLite database path")
+		flagNoMutex     = flag.Bool("no-single-instance", false, "Skip single-instance mutex check")
+		flagFloatingBar = flag.Bool("floating-bar", false, "Enable Magpie-style native capsule floating toolbar")
 	)
 	flag.Parse()
 
@@ -73,6 +76,12 @@ func main() {
 	app, err := NewTeacherApp(ctx, rt, *flagDB, *flagHTTP, *flagDiscovery, releaseMutex)
 	if err != nil {
 		log.Fatalf("failed to create teacher app: %v", err)
+	}
+
+	if *flagFloatingBar && app.floatingBar != nil {
+		if err := app.floatingBar.Start(); err != nil {
+			log.Printf("Failed to initialize native floating bar: %v", err)
+		}
 	}
 
 	if err := app.Start(); err != nil {
@@ -141,6 +150,38 @@ func NewTeacherApp(ctx context.Context, rt platform.Runtime, dbPath, httpAddr, u
 		Handler: apiSrv.Handler(),
 	}
 
+	annotator := NewDesktopAnnotator(func() {
+		log.Println("Desktop annotator closed.")
+	})
+
+	floatingBar := NewFloatingBar(FloatingBarCallbacks{
+		OnBroadcast: func() error {
+			if apiSrv.broadcastSession != nil {
+				return apiSrv.broadcastSession.StartTeacherBroadcast("teacher-local")
+			}
+			return nil
+		},
+		OnBlackScreen: func() error {
+			if lockMgr != nil {
+				return lockMgr.Lock(screenlock.LockRequest{
+					Title:      "全屏专注模式",
+					Message:    "请注意听讲，注意看教师屏幕演示！",
+					ShowBanner: true,
+				})
+			}
+			return nil
+		},
+		OnAnnotate: func() error {
+			if annotator != nil {
+				return annotator.Start()
+			}
+			return nil
+		},
+		OnCollapse: func() {
+			log.Println("Floating bar collapsed to minimal capsule.")
+		},
+	})
+
 	return &TeacherApp{
 		platformRT:   rt,
 		store:        store,
@@ -148,6 +189,8 @@ func NewTeacherApp(ctx context.Context, rt platform.Runtime, dbPath, httpAddr, u
 		udpServer:    udpSrv,
 		apiServer:    apiSrv,
 		httpServer:   httpSrv,
+		floatingBar:  floatingBar,
+		annotator:    annotator,
 		releaseMutex: releaseMutex,
 	}, nil
 }
@@ -170,6 +213,14 @@ func (a *TeacherApp) Start() error {
 }
 
 func (a *TeacherApp) Stop() {
+	if a.annotator != nil && a.annotator.IsActive() {
+		a.annotator.Stop()
+	}
+
+	if a.floatingBar != nil {
+		a.floatingBar.Destroy()
+	}
+
 	if a.httpServer != nil {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()

@@ -473,8 +473,10 @@ func (o *WindowsOverlay) runWindowLoop(readyChan chan<- error) {
 		procDestroyWindow.Call(hwnd)
 	}
 
+	o.mu.Lock()
 	o.hwnd = 0
 	o.threadID = 0
+	o.mu.Unlock()
 }
 
 // Hide closes and destroys the lock screen overlay window.

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"embed"
 	"encoding/json"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"localmesh/internal/capabilities/attendance"
+	"localmesh/internal/capabilities/audio"
 	"localmesh/internal/capabilities/broadcast"
 	"localmesh/internal/capabilities/filetransfer"
 	"localmesh/internal/capabilities/interaction"
@@ -22,6 +24,7 @@ import (
 	"localmesh/internal/capabilities/screen"
 	"localmesh/internal/capabilities/screenlock"
 	"localmesh/internal/capabilities/whiteboard"
+	"localmesh/internal/classroom"
 	"localmesh/internal/domain/discovery"
 )
 
@@ -49,6 +52,10 @@ type APIServer struct {
 	shellRunner       *remoteshell.Runner
 	inventoryMgr      *inventory.Manager
 	attendanceSession *attendance.AttendanceSession
+	audioSender       *audio.Sender
+	audioCapturer     audio.Capturer
+	audioCancel       context.CancelFunc
+	channelID         int
 }
 
 func NewAPIServer(
@@ -81,6 +88,7 @@ func NewAPIServer(
 		whiteboard:       whiteboard.NewWhiteboard(defaultClassroomID),
 		shellRunner:      remoteshell.NewRunner(),
 		inventoryMgr:     invMgr,
+		channelID:        1,
 	}
 }
 
@@ -90,6 +98,15 @@ func (s *APIServer) Handler() http.Handler {
 	// Core & Discovery
 	mux.HandleFunc("GET /api/v1/health", s.handleHealth)
 	mux.HandleFunc("GET /api/v1/candidates", s.handleCandidates)
+
+	// Classroom Channel & Multi-Room Isolation
+	mux.HandleFunc("GET /api/v1/classroom/channel", s.handleGetChannel)
+	mux.HandleFunc("POST /api/v1/classroom/channel", s.handleSetChannel)
+
+	// Real-time Audio Streaming (WASAPI Loopback)
+	mux.HandleFunc("POST /api/v1/audio/start", s.handleStartAudio)
+	mux.HandleFunc("POST /api/v1/audio/stop", s.handleStopAudio)
+	mux.HandleFunc("GET /api/v1/audio/status", s.handleGetAudioStatus)
 
 	// Remote Control & Policies
 	mux.HandleFunc("POST /api/v1/commands/power", s.handlePowerCommand)
@@ -792,6 +809,132 @@ func (s *APIServer) handleExportAttendanceCSV(w http.ResponseWriter, _ *http.Req
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=attendance_%s.csv", sess.ID))
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(csvBytes)
+}
+
+func (s *APIServer) handleGetChannel(w http.ResponseWriter, _ *http.Request) {
+	s.mu.RLock()
+	ch := s.channelID
+	s.mu.RUnlock()
+
+	targetMulticast := classroom.DeriveMulticastAddr(ch, broadcast.DefaultMulticastAddr)
+	targetAudio := classroom.DeriveMulticastAddr(ch, audio.DefaultAudioMulticastAddr)
+	fingerprint := classroom.DeriveClassroomFingerprint(defaultClassroomID, ch)
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":               true,
+		"channel_id":       ch,
+		"classroom_id":     defaultClassroomID,
+		"screen_multicast": targetMulticast,
+		"audio_multicast":  targetAudio,
+		"fingerprint":      fingerprint,
+	})
+}
+
+func (s *APIServer) handleSetChannel(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ChannelID int `json:"channel_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if err := classroom.ValidateChannelID(req.ChannelID); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	s.mu.Lock()
+	s.channelID = req.ChannelID
+	s.mu.Unlock()
+
+	targetMulticast := classroom.DeriveMulticastAddr(req.ChannelID, broadcast.DefaultMulticastAddr)
+	targetAudio := classroom.DeriveMulticastAddr(req.ChannelID, audio.DefaultAudioMulticastAddr)
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":               true,
+		"channel_id":       req.ChannelID,
+		"screen_multicast": targetMulticast,
+		"audio_multicast":  targetAudio,
+	})
+}
+
+func (s *APIServer) handleStartAudio(w http.ResponseWriter, _ *http.Request) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.audioCancel != nil {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ok":        true,
+			"streaming": true,
+			"message":   "audio stream already running",
+		})
+		return
+	}
+
+	targetAddr := classroom.DeriveMulticastAddr(s.channelID, audio.DefaultAudioMulticastAddr)
+	sender, err := audio.NewSender(audio.SenderConfig{
+		TargetAddr: targetAddr,
+	})
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{
+			"ok":    false,
+			"error": fmt.Sprintf("init audio sender: %v", err),
+		})
+		return
+	}
+
+	capturer := audio.NewCapturer(audio.DefaultAudioFormat)
+	audioCtx, cancel := context.WithCancel(context.Background())
+	s.audioSender = sender
+	s.audioCapturer = capturer
+	s.audioCancel = cancel
+
+	go func() {
+		_ = sender.Stream(audioCtx, capturer)
+	}()
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":        true,
+		"streaming": true,
+		"target":    targetAddr,
+	})
+}
+
+func (s *APIServer) handleStopAudio(w http.ResponseWriter, _ *http.Request) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.audioCancel != nil {
+		s.audioCancel()
+		s.audioCancel = nil
+	}
+	if s.audioCapturer != nil {
+		_ = s.audioCapturer.Stop()
+		s.audioCapturer = nil
+	}
+	if s.audioSender != nil {
+		_ = s.audioSender.Close()
+		s.audioSender = nil
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":        true,
+		"streaming": false,
+	})
+}
+
+func (s *APIServer) handleGetAudioStatus(w http.ResponseWriter, _ *http.Request) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	streaming := s.audioCancel != nil
+	target := classroom.DeriveMulticastAddr(s.channelID, audio.DefaultAudioMulticastAddr)
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":        true,
+		"streaming": streaming,
+		"target":    target,
+	})
 }
 
 func writeJSON(w http.ResponseWriter, code int, val any) {

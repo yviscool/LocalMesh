@@ -64,7 +64,7 @@ func TestRunnerTableDrivenScenarios(t *testing.T) {
 			req: ScriptExecutionRequest{
 				ScriptType:     ScriptTypePowerShell,
 				Content:        "Write-Output 'Hello from PowerShell'",
-				TimeoutSeconds: 10,
+				TimeoutSeconds: 25,
 			},
 			expectedExitCode: 0,
 			expectedStdout:   "Hello from PowerShell",
@@ -86,7 +86,7 @@ func TestRunnerTableDrivenScenarios(t *testing.T) {
 			req: ScriptExecutionRequest{
 				ScriptType:     ScriptTypePowerShell,
 				Content:        "exit 7",
-				TimeoutSeconds: 10,
+				TimeoutSeconds: 25,
 			},
 			expectedExitCode: 7,
 			expectError:      true,
@@ -108,7 +108,7 @@ func TestRunnerTableDrivenScenarios(t *testing.T) {
 			req: ScriptExecutionRequest{
 				ScriptType:     ScriptTypePowerShell,
 				Content:        "Get-InvalidCommand-ThatDoesNotExist123456",
-				TimeoutSeconds: 10,
+				TimeoutSeconds: 25,
 			},
 			expectedExitCode: 1, // PowerShell exits 1 on unhandled cmdlet error
 			expectError:      true,

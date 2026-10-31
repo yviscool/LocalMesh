@@ -402,3 +402,59 @@ func TestAPIServer_ScriptInventoryAttendance(t *testing.T) {
 		t.Errorf("expected S01 in exported CSV")
 	}
 }
+
+func TestAPIServer_AudioAndChannel(t *testing.T) {
+	srv := setupTestServer()
+	h := srv.Handler()
+
+	// 1. Get default channel
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/api/v1/classroom/channel", nil)
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	var chBody map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &chBody)
+	if int(chBody["channel_id"].(float64)) != 1 {
+		t.Errorf("expected channel 1, got %v", chBody["channel_id"])
+	}
+
+	// 2. Set new channel 42
+	setChReq := []byte(`{"channel_id":42}`)
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest("POST", "/api/v1/classroom/channel", bytes.NewReader(setChReq))
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+
+	// 3. Audio Start
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest("POST", "/api/v1/audio/start", nil)
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+
+	// 4. Audio Status
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest("GET", "/api/v1/audio/status", nil)
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	var audioBody map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &audioBody)
+	if audioBody["streaming"] != true {
+		t.Errorf("expected audio streaming true, got %v", audioBody["streaming"])
+	}
+
+	// 5. Audio Stop
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest("POST", "/api/v1/audio/stop", nil)
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+}
