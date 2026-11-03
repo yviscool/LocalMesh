@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LocalMesh 课堂</title>
+    <link rel="stylesheet" href="./src/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <!-- 自绘标题栏：右侧留出系统窗口控制按钮 -->
+      <header id="titlebar">
+        <div class="brand">
+          <span class="brand-gem"></span>
+          <span class="brand-name">LocalMesh <b>课堂</b></span>
+        </div>
+        <nav id="commandbar" class="no-drag"></nav>
+        <div class="titlebar-spacer"></div>
+      </header>
+
+      <div id="body">
+        <main id="stage">
+          <div id="view-tabs" class="no-drag">
+            <button class="view-tab active" data-view="mosaic">画面墙</button>
+            <button class="view-tab" data-view="seating">排座</button>
+          </div>
+          <section id="mosaic" class="view active"></section>
+          <section id="seating" class="view"></section>
+        </main>
+
+        <aside id="drawer" class="no-drag">
+          <nav id="drawer-tabs">
+            <button class="drawer-tab active" data-tab="events">事件</button>
+            <button class="drawer-tab" data-tab="chat">聊天</button>
+            <button class="drawer-tab" data-tab="hands">举手 <span id="hand-badge" class="badge hidden">0</span></button>
+          </nav>
+          <div id="drawer-panels">
+            <div id="panel-events" class="drawer-panel active"></div>
+            <div id="panel-chat" class="drawer-panel">
+              <div id="chat-log"></div>
+              <form id="chat-form">
+                <select id="chat-target"><option value="">全班</option></select>
+                <input id="chat-input" placeholder="发送消息…" autocomplete="off" />
+                <button type="submit" title="发送">➤</button>
+              </form>
+            </div>
+            <div id="panel-hands" class="drawer-panel"></div>
+          </div>
+        </aside>
+      </div>
+
+      <footer id="statusbar" class="no-drag">
+        <div id="status-left"></div>
+        <div id="status-right"></div>
+      </footer>
+    </div>
+
+    <div id="modal-root"></div>
+    <div id="toast-root"></div>
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>

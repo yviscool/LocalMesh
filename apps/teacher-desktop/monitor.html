@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>实时监控</title>
+    <link rel="stylesheet" href="./src/style.css" />
+  </head>
+  <body class="monitor-page">
+    <div id="monitor-app">
+      <!-- 独立监控窗的自绘标题栏；右侧留出系统窗口控制 -->
+      <header id="monitor-titlebar">
+        <span class="m-dot"></span>
+        <b id="m-name">…</b>
+        <span id="m-res" class="hud-chip">—</span>
+        <span id="m-fps" class="hud-chip">0 fps</span>
+        <span class="hud-chip hd">HD</span>
+        <span class="tb-spacer"></span>
+        <button id="m-fullscreen" class="hud-btn" title="系统全屏 / 退出全屏 (Esc)">⛶ 全屏</button>
+      </header>
+      <div class="monitor-wrap">
+        <div id="m-loading" class="monitor-loading">连接学生机高清画面…</div>
+        <img id="m-img" alt="学生桌面实时画面" draggable="false" style="display:none" />
+      </div>
+    </div>
+    <script type="module" src="./src/monitor.ts"></script>
+  </body>
+</html>

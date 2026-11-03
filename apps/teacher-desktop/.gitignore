@@ -1,0 +1,10 @@
+# Frontend
+node_modules/
+dist/
+
+# mygo dev/build artifacts
+.mygo/
+build/
+
+# Go
+*.test
