@@ -23,3 +23,7 @@ Thumbs.db
 /proto/gen/
 /native/build/
 
+
+# Runtime databases
+/data/
+apps/*/data/
