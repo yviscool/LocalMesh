@@ -5,8 +5,10 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -124,6 +126,7 @@ func (s *APIServer) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/seating", s.handleGetSeating)
 	mux.HandleFunc("POST /api/v1/seating", s.handleSetSeating)
 	mux.HandleFunc("GET /api/v1/thumbnails", s.handleGetThumbnails)
+	mux.HandleFunc("POST /api/v1/thumbnails/push", s.handlePushThumbnail)
 
 	// Quiz & Buzzer
 	mux.HandleFunc("POST /api/v1/quiz/create", s.handleCreateQuiz)
@@ -379,6 +382,36 @@ func (s *APIServer) handleGetThumbnails(w http.ResponseWriter, _ *http.Request) 
 		return
 	}
 	writeJSON(w, http.StatusOK, s.thumbCache.List())
+}
+
+// maxThumbnailPushBytes bounds the per-frame upload from student agents.
+const maxThumbnailPushBytes = 2 << 20 // 2 MB
+
+// handlePushThumbnail receives a JPEG screen thumbnail pushed by a student
+// agent and stores it in the thumbnail cache for console polling.
+func (s *APIServer) handlePushThumbnail(w http.ResponseWriter, r *http.Request) {
+	deviceID := r.Header.Get("X-Device-ID")
+	if deviceID == "" {
+		http.Error(w, "missing X-Device-ID header", http.StatusBadRequest)
+		return
+	}
+	if s.thumbCache == nil {
+		http.Error(w, "thumbnail cache unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxThumbnailPushBytes))
+	if err != nil {
+		http.Error(w, fmt.Sprintf("read frame body: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	seq, _ := strconv.ParseUint(r.Header.Get("X-Frame-Seq"), 10, 64)
+	if _, err := s.thumbCache.UpdateRaw(deviceID, body, screen.FormatJPEG, 0, 0, seq); err != nil {
+		http.Error(w, fmt.Sprintf("store thumbnail: %v", err), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 // Quiz Handlers

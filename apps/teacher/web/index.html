@@ -483,12 +483,23 @@
   <script>
     let discoveredDevices = [];
     let selectedDevices = new Set();
+    let thumbnailMap = {};
 
     async function refreshData() {
       try {
-        const res = await fetch('/api/v1/candidates');
-        if (res.ok) {
-          discoveredDevices = await res.json();
+        const [devRes, thumbRes] = await Promise.all([
+          fetch('/api/v1/candidates'),
+          fetch('/api/v1/thumbnails')
+        ]);
+        if (devRes.ok) {
+          discoveredDevices = await devRes.json();
+          renderDevices();
+        }
+        if (thumbRes.ok) {
+          const thumbs = await thumbRes.json();
+          const nextMap = {};
+          thumbs.forEach(t => { nextMap[t.device_id] = `data:image/jpeg;base64,${t.data}`; });
+          thumbnailMap = nextMap;
           renderDevices();
         }
       } catch (err) {
@@ -512,9 +523,14 @@
         card.className = `device-card ${isSelected ? 'selected' : ''}`;
         card.onclick = () => toggleSelect(d.device_id);
 
+        const thumbSrc = thumbnailMap[d.device_id];
+        const screenContent = thumbSrc
+          ? `<img src="${thumbSrc}" alt="机位实时画面">`
+          : '<span>[机位实时画面]</span>';
+
         card.innerHTML = `
           <div class="device-screen-thumb">
-            <span>[机位实时画面]</span>
+            ${screenContent}
           </div>
           <div class="device-meta">
             <span class="device-title">${d.device_id}</span>

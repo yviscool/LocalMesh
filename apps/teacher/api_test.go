@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"image"
+	"image/jpeg"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -456,5 +458,77 @@ func TestAPIServer_AudioAndChannel(t *testing.T) {
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+}
+
+func TestAPIServer_ThumbnailPush(t *testing.T) {
+	srv := setupTestServer()
+	h := srv.Handler()
+
+	// Build a minimal valid JPEG frame (1x1 white pixel).
+	img := image.NewRGBA(image.Rect(0, 0, 2, 2))
+	for i := range img.Pix {
+		img.Pix[i] = 0xFF
+	}
+	var frame bytes.Buffer
+	if err := jpeg.Encode(&frame, img, &jpeg.Options{Quality: 70}); err != nil {
+		t.Fatalf("encode test jpeg: %v", err)
+	}
+
+	// 1. Push without device id must be rejected.
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/api/v1/thumbnails/push", bytes.NewReader(frame.Bytes()))
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for missing device id, got %d", rec.Code)
+	}
+
+	// 2. Push with device id stores the thumbnail.
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest("POST", "/api/v1/thumbnails/push", bytes.NewReader(frame.Bytes()))
+	req.Header.Set("X-Device-ID", "DEVICE-TEST-01")
+	req.Header.Set("X-Frame-Seq", "7")
+	req.Header.Set("Content-Type", "image/jpeg")
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// 3. Thumbnail is queryable with the pushed JPEG payload.
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest("GET", "/api/v1/thumbnails", nil)
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	var thumbs []screen.Thumbnail
+	if err := json.Unmarshal(rec.Body.Bytes(), &thumbs); err != nil {
+		t.Fatalf("failed to parse thumbnails json: %v", err)
+	}
+	if len(thumbs) != 1 {
+		t.Fatalf("expected 1 thumbnail, got %d", len(thumbs))
+	}
+	thumb := thumbs[0]
+	if thumb.DeviceID != "DEVICE-TEST-01" {
+		t.Errorf("expected device DEVICE-TEST-01, got %s", thumb.DeviceID)
+	}
+	if thumb.Sequence != 7 {
+		t.Errorf("expected sequence 7, got %d", thumb.Sequence)
+	}
+	if thumb.Format != screen.FormatJPEG {
+		t.Errorf("expected jpeg format, got %v", thumb.Format)
+	}
+	if len(thumb.Data) == 0 {
+		t.Errorf("expected non-empty thumbnail data")
+	}
+
+	// 4. Oversized frame must be rejected.
+	rec = httptest.NewRecorder()
+	big := bytes.NewReader(make([]byte, maxThumbnailPushBytes+1))
+	req = httptest.NewRequest("POST", "/api/v1/thumbnails/push", big)
+	req.Header.Set("X-Device-ID", "DEVICE-TEST-01")
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for oversized frame, got %d", rec.Code)
 	}
 }
