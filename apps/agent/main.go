@@ -21,12 +21,14 @@ import (
 
 	"localmesh/internal/capabilities/audio"
 	"localmesh/internal/capabilities/filetransfer"
+	"localmesh/internal/capabilities/netfilter"
 	"localmesh/internal/capabilities/power"
 	"localmesh/internal/capabilities/registry"
 	"localmesh/internal/capabilities/restrictions"
 	"localmesh/internal/capabilities/screenlock"
 	"localmesh/internal/capabilities/watchdog"
 	"localmesh/internal/capabilities/workers"
+	"localmesh/internal/classroom"
 	"localmesh/internal/domain/identity"
 	"localmesh/internal/platform"
 	"localmesh/internal/platform/common"
@@ -40,6 +42,7 @@ const (
 	defaultDiscoveryAddr = "255.255.255.255:7444"
 	defaultWindowsPipe   = `\\.\pipe\localmesh-agent`
 	defaultUnixSocket    = "/tmp/localmesh-agent.sock"
+	defaultTeacherURL    = "http://127.0.0.1:8080"
 )
 
 type AgentApp struct {
@@ -61,8 +64,35 @@ type AgentApp struct {
 	ipcListener      ipc.Listener
 	pipeAddress      string
 	discoveryAddr    string
+	teacherURL       string
+	screenHTTP       string
+	screenSrv        *screenServer
+	channelID        int
+	nfMgr            *netfilter.Manager
+	events           eventBuffer
+	ackedMu          sync.Mutex
+	acked            []string
+	audioCancel      context.CancelFunc
+	audioCapturer    audio.Capturer
+	audioSender      *audio.Sender
 	discoveryStop    chan struct{}
 	releaseMutex     func()
+}
+
+// ack records a command acknowledgement for the next poll.
+func (a *AgentApp) ack(id string) {
+	a.ackedMu.Lock()
+	a.acked = append(a.acked, id)
+	a.ackedMu.Unlock()
+}
+
+// drainAcked returns and clears pending acknowledgements.
+func (a *AgentApp) drainAcked() []string {
+	a.ackedMu.Lock()
+	defer a.ackedMu.Unlock()
+	out := a.acked
+	a.acked = nil
+	return out
 }
 
 func main() {
@@ -71,6 +101,8 @@ func main() {
 		flagPipe               = flag.String("pipe", "", "IPC endpoint address (named pipe or unix socket)")
 		flagDiscovery          = flag.Bool("discovery", true, "Enable UDP broadcast announcement")
 		flagDiscoveryAddr      = flag.String("discovery-addr", defaultDiscoveryAddr, "UDP discovery broadcast address")
+		flagTeacherURL         = flag.String("teacher-url", defaultTeacherURL, "Teacher console HTTP base URL for thumbnail push")
+		flagScreenHTTP         = flag.String("screen-http", DefaultScreenHTTPAddr, "On-demand HD screen endpoint (empty disables)")
 		flagInstallAutostart   = flag.Bool("install-autostart", false, "Configure agent to launch automatically on logon")
 		flagUninstallAutostart = flag.Bool("uninstall-autostart", false, "Remove autostart logon configuration")
 		flagNoMutex            = flag.Bool("no-single-instance", false, "Skip single-instance mutex check")
@@ -170,6 +202,8 @@ func main() {
 				return initErr
 			}
 			app.SetExitPassword(*flagExitPassword)
+			app.SetTeacherURL(*flagTeacherURL)
+			app.SetScreenHTTP(*flagScreenHTTP)
 			if err := app.Start(svcCtx, *flagDiscovery); err != nil {
 				return err
 			}
@@ -211,6 +245,8 @@ func main() {
 		log.Fatalf("failed to initialize agent: %v", err)
 	}
 	app.SetExitPassword(*flagExitPassword)
+	app.SetTeacherURL(*flagTeacherURL)
+	app.SetScreenHTTP(*flagScreenHTTP)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
@@ -311,10 +347,17 @@ func NewAgentApp(rt platform.Runtime, customID string, pipeAddr, discoveryAddr s
 		return &noopWorker{id: capID}, nil
 	})
 
-	lockMgr := screenlock.NewManager(screenlock.NewPlatformTrapper())
+	lockMgr := screenlock.NewManagerWithOverlay(screenlock.NewPlatformTrapper(), screenlock.NewPlatformOverlay())
 	powerSvc := power.NewService(&power.OSCommandExecutor{OS: string(rt.OS)}, nil)
-	procMon := restrictions.NewProcessMonitor(&simpleProcessController{}, nil)
+	procMon := restrictions.NewProcessMonitor(&restrictions.OSProcessController{}, nil)
 	fileRcvr := filetransfer.NewReceiver()
+
+	var nfAdapter netfilter.FirewallAdapter
+	if rt.OS == "windows" {
+		nfAdapter = netfilter.NewWindowsNetshAdapter()
+	} else {
+		nfAdapter = netfilter.NewMockFirewallAdapter()
+	}
 
 	offlineGuard := watchdog.NewOfflineGuard(lockMgr, watchdog.DefaultOfflineGuardConfig())
 
@@ -330,6 +373,8 @@ func NewAgentApp(rt platform.Runtime, customID string, pipeAddr, discoveryAddr s
 		processMon:       procMon,
 		fileRcvr:         fileRcvr,
 		offlineGuard:     offlineGuard,
+		nfMgr:            netfilter.NewManager(nfAdapter),
+		channelID:        classroom.DefaultChannelID,
 		exitPasswordHash: HashPassword(DefaultExitPassword),
 		exitChan:         make(chan struct{}),
 		pipeAddress:      pipeAddr,
@@ -351,6 +396,18 @@ func (a *AgentApp) VerifyExitPassword(candidate string) bool {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 	return VerifyExitPassword(candidate, a.exitPasswordHash)
+}
+
+// SetTeacherURL configures the teacher console endpoint for thumbnail push.
+// Must be called before Start.
+func (a *AgentApp) SetTeacherURL(url string) {
+	a.teacherURL = url
+}
+
+// SetScreenHTTP configures the on-demand HD screen endpoint address.
+// Must be called before Start.
+func (a *AgentApp) SetScreenHTTP(addr string) {
+	a.screenHTTP = addr
 }
 
 // ExitChan returns a channel that is closed when an authorized exit is requested.
@@ -378,10 +435,9 @@ func (a *AgentApp) Start(ctx context.Context, enableDiscovery bool) error {
 
 	go a.serveIPC(ctx)
 
-	// 2. Start offline watchdog
-	if a.offlineGuard != nil {
-		a.offlineGuard.Start(ctx)
-	}
+	// 2. Offline watchdog: armed lazily by the poller when class control
+	// arrives; here we just record it for later replacement.
+	// (a.offlineGuard starts inside startPoller on first state.)
 
 	// 3. Start UDP Discovery Broadcaster
 	if enableDiscovery {
@@ -389,35 +445,67 @@ func (a *AgentApp) Start(ctx context.Context, enableDiscovery bool) error {
 	}
 
 	// 4. Start background classroom audio stream listener & low-latency player
-	go a.startAudioReceiver(ctx)
+	a.restartAudioReceiver()
+
+	// 5. Start on-demand HD screen endpoint (teacher pulls full frames)
+	if a.screenHTTP != "" {
+		a.screenSrv = newScreenServer(a.screenHTTP)
+		a.screenSrv.Start()
+	}
+
+	// 6. Start screen thumbnail pusher (feeds the teacher console live preview)
+	if a.teacherURL != "" {
+		go a.startThumbnailPusher(ctx, a.teacherURL)
+	}
+
+	// 7. Command channel: poll the teacher for desired state + commands
+	if a.teacherURL != "" {
+		go a.startPoller(ctx)
+	}
 
 	return nil
 }
 
-func (a *AgentApp) startAudioReceiver(ctx context.Context) {
-	receiver, err := audio.NewReceiver(audio.ReceiverConfig{
-		ListenAddr: audio.DefaultAudioMulticastAddr,
-	})
-	if err != nil {
-		log.Printf("[Audio] Background receiver setup skipped: %v", err)
-		return
+// restartAudioReceiver (re)binds the classroom audio listener on the
+// multicast address derived from the current channel.
+func (a *AgentApp) restartAudioReceiver() {
+	a.mu.Lock()
+	if a.audioCancel != nil {
+		a.audioCancel()
 	}
-	defer receiver.Close()
+	audioCtx, cancel := context.WithCancel(context.Background())
+	a.audioCancel = cancel
+	channel := a.channelID
+	a.mu.Unlock()
 
-	player := audio.NewPlayer(audio.DefaultAudioFormat)
-	if err := player.Start(ctx); err != nil {
-		log.Printf("[Audio] Background player start failed: %v", err)
-		return
-	}
-	defer player.Stop()
+	go func() {
+		addr := classroom.DeriveMulticastAddr(channel, audio.DefaultAudioMulticastAddr)
+		receiver, err := audio.NewReceiver(audio.ReceiverConfig{ListenAddr: addr})
+		if err != nil {
+			log.Printf("[Audio] Background receiver setup skipped: %v", err)
+			return
+		}
+		defer receiver.Close()
 
-	log.Printf("[Audio] Listening for classroom audio on %s", audio.DefaultAudioMulticastAddr)
-	if err := receiver.Stream(ctx, player); err != nil && !errors.Is(err, context.Canceled) {
-		log.Printf("[Audio] Stream finished: %v", err)
-	}
+		player := audio.NewPlayer(audio.DefaultAudioFormat)
+		if err := player.Start(audioCtx); err != nil {
+			log.Printf("[Audio] Background player start failed: %v", err)
+			return
+		}
+		defer player.Stop()
+
+		log.Printf("[Audio] Listening for classroom audio on %s", addr)
+		if err := receiver.Stream(audioCtx, player); err != nil && !errors.Is(err, context.Canceled) {
+			log.Printf("[Audio] Stream finished: %v", err)
+		}
+	}()
 }
 
 func (a *AgentApp) Stop() {
+	if a.screenSrv != nil {
+		a.screenSrv.Stop()
+	}
+
 	if a.discoveryStop != nil {
 		select {
 		case <-a.discoveryStop:
@@ -593,23 +681,11 @@ func (a *AgentApp) startDiscoveryAnnouncer(ctx context.Context) {
 		"attendance.rollcall",
 	}
 
-	ann := udpdiscovery.Announcement{
-		Version:      udpdiscovery.ProtocolVersion,
-		DeviceID:     string(a.deviceID),
-		Endpoint:     a.pipeAddress,
-		Capabilities: caps,
-		TTLSeconds:   30,
-	}
-
-	payload, err := json.Marshal(ann)
-	if err != nil {
-		return
-	}
-
+	// Announcement built per tick so a channel follow takes effect without
+	// restarting the announcer.
 	log.Printf("UDP Discovery announcer broadcasting to %s", a.discoveryAddr)
 
-	// Send initial burst
-	_, _ = conn.Write(payload)
+	_, _ = conn.Write(a.buildAnnouncement(caps))
 
 	for {
 		select {
@@ -618,19 +694,30 @@ func (a *AgentApp) startDiscoveryAnnouncer(ctx context.Context) {
 		case <-a.discoveryStop:
 			return
 		case <-ticker.C:
-			_, _ = conn.Write(payload)
+			_, _ = conn.Write(a.buildAnnouncement(caps))
 		}
 	}
 }
 
-type simpleProcessController struct{}
+// buildAnnouncement marshals the current discovery announcement.
+func (a *AgentApp) buildAnnouncement(caps []string) []byte {
+	a.mu.RLock()
+	channel := a.channelID
+	a.mu.RUnlock()
 
-func (s *simpleProcessController) ListProcesses(_ context.Context) ([]restrictions.ProcessInfo, error) {
-	return []restrictions.ProcessInfo{}, nil
-}
-
-func (s *simpleProcessController) KillProcess(_ context.Context, _ int) error {
-	return nil
+	ann := udpdiscovery.Announcement{
+		Version:      udpdiscovery.ProtocolVersion,
+		DeviceID:     string(a.deviceID),
+		Endpoint:     a.pipeAddress,
+		Capabilities: caps,
+		ChannelID:    channel,
+		TTLSeconds:   30,
+	}
+	payload, err := json.Marshal(ann)
+	if err != nil {
+		return nil
+	}
+	return payload
 }
 
 type noopWorker struct {
