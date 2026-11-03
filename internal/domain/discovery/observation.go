@@ -25,6 +25,9 @@ type Observation struct {
 	SeenAt    time.Time
 	TLSName   string
 	Reachable bool
+	// ChannelID is the classroom channel announced by the device (1-255).
+	// Zero means legacy announcement, treated as the default channel.
+	ChannelID int
 }
 
 func (o Observation) Candidate() bool {

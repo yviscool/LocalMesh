@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 )
@@ -232,13 +231,7 @@ func (m *ProcessMonitor) EvaluateAndEnforce(ctx context.Context, policy ProcessP
 	return results, nil
 }
 
-// OSProcessController implements basic process killing via os.FindProcess.
+// OSProcessController enumerates and terminates local processes using the
+// platform toolchain (tasklist/taskkill on Windows). ListProcesses and
+// KillProcess live in the platform-specific oscontroller_*.go files.
 type OSProcessController struct{}
-
-func (c *OSProcessController) KillProcess(ctx context.Context, pid int) error {
-	p, err := os.FindProcess(pid)
-	if err != nil {
-		return err
-	}
-	return p.Kill()
-}

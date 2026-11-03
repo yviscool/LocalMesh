@@ -54,6 +54,7 @@ func (s *Store) Migrate(ctx context.Context) error {
 		{version: 1, name: "migrations/001_initial.sql"},
 		{version: 2, name: "migrations/002_runtime_state.sql"},
 		{version: 3, name: "migrations/003_multiplatform_defaults.sql"},
+		{version: 4, name: "migrations/004_agent_audit.sql"},
 	}
 	for _, migration := range migrations {
 		version, name := migration.version, migration.name
@@ -249,3 +250,63 @@ var _ application.PairingRepository = (*Store)(nil)
 var _ application.MembershipRepository = (*Store)(nil)
 var _ application.SessionRepository = (*Store)(nil)
 var _ application.SessionRecoveryRepository = (*Store)(nil)
+
+// AgentEvent is one audit record reported by a student agent.
+type AgentEvent struct {
+	EventID    string
+	DeviceID   string
+	ChannelID  int
+	Kind       string
+	Detail     string
+	OccurredAt time.Time
+}
+
+// AppendAgentEvent stores an agent-reported audit record.
+func (s *Store) AppendAgentEvent(ctx context.Context, event AgentEvent) error {
+	_, err := s.db.ExecContext(ctx, `INSERT OR IGNORE INTO agent_events(event_id, device_id, channel_id, kind, detail, occurred_at) VALUES(?, ?, ?, ?, ?, ?)`,
+		event.EventID, event.DeviceID, event.ChannelID, event.Kind, event.Detail, event.OccurredAt.UTC().Format(time.RFC3339Nano))
+	if err != nil {
+		return fmt.Errorf("insert agent event: %w", err)
+	}
+	return nil
+}
+
+// ListAgentEvents returns the most recent agent audit records, newest first.
+func (s *Store) ListAgentEvents(ctx context.Context, limit int, deviceID string) ([]AgentEvent, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	query := `SELECT event_id, device_id, channel_id, kind, detail, occurred_at FROM agent_events`
+	args := []any{}
+	if deviceID != "" {
+		query += ` WHERE device_id = ?`
+		args = append(args, deviceID)
+	}
+	query += ` ORDER BY occurred_at DESC LIMIT ?`
+	args = append(args, limit)
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query agent events: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]AgentEvent, 0, limit)
+	for rows.Next() {
+		var event AgentEvent
+		var occurred string
+		if err := rows.Scan(&event.EventID, &event.DeviceID, &event.ChannelID, &event.Kind, &event.Detail, &occurred); err != nil {
+			return nil, fmt.Errorf("scan agent event: %w", err)
+		}
+		parsed, err := parseTimestamp(occurred)
+		if err != nil {
+			return nil, err
+		}
+		event.OccurredAt = parsed
+		out = append(out, event)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate agent events: %w", err)
+	}
+	return out, nil
+}

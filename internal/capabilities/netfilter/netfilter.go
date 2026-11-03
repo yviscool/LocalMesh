@@ -27,6 +27,9 @@ const (
 	ModeAllowAll      FilterMode = "allow_all"
 	ModeBlockInternet FilterMode = "block_internet"
 	ModeWhitelistOnly FilterMode = "whitelist_only"
+	// ModeBlockSites blocks only the listed domains (blacklist), leaving
+	// general internet access untouched.
+	ModeBlockSites FilterMode = "block_sites"
 )
 
 // NetworkPolicy specifies target restriction rules for student devices.
@@ -34,13 +37,14 @@ type NetworkPolicy struct {
 	Mode           FilterMode `json:"mode"`
 	AllowedSubnets []string   `json:"allowed_subnets,omitempty"`
 	AllowedDomains []string   `json:"allowed_domains,omitempty"`
+	BlockedDomains []string   `json:"blocked_domains,omitempty"`
 	BlockPorts     []int      `json:"block_ports,omitempty"`
 }
 
 // Validate checks policy structure and value validity.
 func (p NetworkPolicy) Validate() error {
 	switch p.Mode {
-	case ModeAllowAll, ModeBlockInternet, ModeWhitelistOnly:
+	case ModeAllowAll, ModeBlockInternet, ModeWhitelistOnly, ModeBlockSites:
 	default:
 		return fmt.Errorf("%w: %q", ErrInvalidPolicyMode, p.Mode)
 	}
@@ -58,6 +62,13 @@ func (p NetworkPolicy) Validate() error {
 	}
 
 	for _, d := range p.AllowedDomains {
+		domainTrim := strings.TrimSpace(d)
+		if domainTrim == "" || strings.Contains(domainTrim, " ") || strings.Contains(domainTrim, "/") {
+			return fmt.Errorf("%w: %q", ErrInvalidDomain, d)
+		}
+	}
+
+	for _, d := range p.BlockedDomains {
 		domainTrim := strings.TrimSpace(d)
 		if domainTrim == "" || strings.Contains(domainTrim, " ") || strings.Contains(domainTrim, "/") {
 			return fmt.Errorf("%w: %q", ErrInvalidDomain, d)
@@ -554,6 +565,47 @@ func GenerateRules(policy NetworkPolicy, prefix string, resolvedDomains map[stri
 				},
 			)
 		}
+
+	case ModeBlockSites:
+		// Blacklist mode: block only the resolved IPs of BlockedDomains.
+		// General internet access remains untouched.
+		i := 0
+		for _, domain := range policy.BlockedDomains {
+			for _, ip := range resolvedDomains[domain] {
+				rules = append(rules, FirewallRule{
+					Name:        fmt.Sprintf("%s-block-site-%d", prefix, i),
+					Direction:   DirectionOut,
+					Action:      ActionBlock,
+					Protocol:    ProtocolAny,
+					RemoteIP:    ip,
+					Description: fmt.Sprintf("Block blacklisted site %s (%s)", domain, ip),
+				})
+				i++
+			}
+		}
+
+		// Ports (e.g. game platforms) still blockable alongside site bans.
+		for _, port := range policy.BlockPorts {
+			portStr := strconv.Itoa(port)
+			rules = append(rules,
+				FirewallRule{
+					Name:        fmt.Sprintf("%s-block-port-%d-tcp", prefix, port),
+					Direction:   DirectionOut,
+					Action:      ActionBlock,
+					Protocol:    ProtocolTCP,
+					RemotePort:  portStr,
+					Description: fmt.Sprintf("Block port %d TCP", port),
+				},
+				FirewallRule{
+					Name:        fmt.Sprintf("%s-block-port-%d-udp", prefix, port),
+					Direction:   DirectionOut,
+					Action:      ActionBlock,
+					Protocol:    ProtocolUDP,
+					RemotePort:  portStr,
+					Description: fmt.Sprintf("Block port %d UDP", port),
+				},
+			)
+		}
 	}
 
 	return rules
@@ -605,6 +657,17 @@ func (m *Manager) ApplyPolicy(ctx context.Context, policy NetworkPolicy) error {
 		ips, err := m.resolver(ctx, domain)
 		if err != nil {
 			// If resolution fails, record warning and continue
+			continue
+		}
+		if len(ips) > 0 {
+			resolved[domain] = ips
+		}
+	}
+
+	// Resolve blocked domains for blacklist mode
+	for _, domain := range policy.BlockedDomains {
+		ips, err := m.resolver(ctx, domain)
+		if err != nil {
 			continue
 		}
 		if len(ips) > 0 {

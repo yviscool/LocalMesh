@@ -23,7 +23,10 @@ type Announcement struct {
 	DeviceID     string   `json:"device_id"`
 	Endpoint     string   `json:"endpoint,omitempty"`
 	Capabilities []string `json:"capabilities,omitempty"`
-	TTLSeconds   int      `json:"ttl_seconds"`
+	// ChannelID is the classroom channel the device belongs to (1-255).
+	// Zero means legacy agent, treated as the default channel.
+	ChannelID  int `json:"channel_id,omitempty"`
+	TTLSeconds int `json:"ttl_seconds"`
 }
 
 type Observer interface{ Observe(domain.Observation) }
@@ -101,6 +104,6 @@ func (s *Server) Serve(ctx context.Context) error {
 		if err != nil {
 			continue
 		}
-		s.Observer.Observe(domain.Observation{DeviceID: deviceID, Address: address, Method: domain.MethodBroadcast, SeenAt: now, TLSName: announcement.Endpoint, Reachable: true})
+		s.Observer.Observe(domain.Observation{DeviceID: deviceID, Address: address, Method: domain.MethodBroadcast, SeenAt: now, TLSName: announcement.Endpoint, Reachable: true, ChannelID: announcement.ChannelID})
 	}
 }
