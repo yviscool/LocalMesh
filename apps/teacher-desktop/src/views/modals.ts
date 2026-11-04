@@ -692,6 +692,8 @@ export async function openSettingsModal() {
             offline: { enabled: cfg.offline.enabled, lease_seconds: Number(leaseInput.value) },
             log: { level: logLevel.value, file: cfg.log.file },
             network: cfg.network,
+            ui: cfg.ui,
+            hotkeys: cfg.hotkeys,
           });
           store.log("⚙️", "设置已保存");
           toast("⚙️", "设置已保存（广播项下次开播生效）");

@@ -16,6 +16,22 @@ type Config struct {
 	Offline    OfflineConfig    `toml:"offline" json:"offline"`
 	Log        LogConfig        `toml:"log" json:"log"`
 	Network    NetworkConfig    `toml:"network" json:"network"`
+	UI         UIConfig         `toml:"ui" json:"ui"`
+	Hotkeys    HotkeysConfig    `toml:"hotkeys" json:"hotkeys"`
+}
+
+// UIConfig holds console appearance preferences.
+type UIConfig struct {
+	Theme            string `toml:"theme" json:"theme"`
+	CardSize         string `toml:"card_size" json:"card_size"`
+	Sort             string `toml:"sort" json:"sort"`
+	Sound            bool   `toml:"sound" json:"sound"`
+	FavoriteChannels []int  `toml:"favorite_channels" json:"favorite_channels"`
+}
+
+// HotkeysConfig holds configurable global shortcuts.
+type HotkeysConfig struct {
+	Lock string `toml:"lock" json:"lock"`
 }
 
 // NetworkConfig holds the listen ports (restart required to apply).
@@ -59,6 +75,8 @@ func Defaults() Config {
 		Offline:    OfflineConfig{Enabled: true, LeaseSeconds: 10},
 		Log:        LogConfig{Level: "info"},
 		Network:    NetworkConfig{HTTPPort: 8080, DiscoveryPort: 7444, ScreenPort: 7450, RemotePort: 7451},
+		UI:         UIConfig{Theme: "dark", CardSize: "M", Sort: "name", Sound: true},
+		Hotkeys:    HotkeysConfig{Lock: "Ctrl+Shift+L"},
 	}
 }
 
@@ -127,5 +145,17 @@ func (c *Config) normalize() {
 	}
 	if c.Network.RemotePort <= 0 {
 		c.Network.RemotePort = 7451
+	}
+	if c.UI.Theme == "" {
+		c.UI.Theme = "dark"
+	}
+	if c.UI.CardSize == "" {
+		c.UI.CardSize = "M"
+	}
+	if c.UI.Sort == "" {
+		c.UI.Sort = "name"
+	}
+	if c.Hotkeys.Lock == "" {
+		c.Hotkeys.Lock = "Ctrl+Shift+L"
 	}
 }

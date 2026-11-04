@@ -319,7 +319,7 @@ export function installRubberBand() {
     const y1 = Math.min(startY, e.clientY), y2 = Math.max(startY, e.clientY);
     if (x2 - x1 < 8 || y2 - y1 < 8) return; // 视为点击空白：清除选择
 
-    const selected = new Set<string>();
+    const selected = e.ctrlKey ? new Set(store.get().selected) : new Set<string>();
     for (const [, card] of cards) {
       const r = card.root.getBoundingClientRect();
       if (r.right > x1 && r.left < x2 && r.bottom > y1 && r.top < y2) {

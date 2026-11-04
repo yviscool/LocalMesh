@@ -16,6 +16,14 @@ img.addEventListener("error", () => {
 img.addEventListener("load", () => {
   img.classList.add("live");
   tip.classList.add("hidden");
+  // 分辨率徽章 + 横幅 5 秒隐藏
+  const res = document.getElementById("vb-res");
+  if (res && img.naturalWidth) res.textContent = img.naturalWidth + "×" + img.naturalHeight;
+  const banner = document.getElementById("viewer-banner");
+  if (banner) {
+    banner.classList.remove("hidden");
+    setTimeout(() => banner.classList.add("hidden"), 5000);
+  }
 });
 
 const exit = () => (window as unknown as { mygo?: { window: { close(): void } } }).mygo?.window.close();

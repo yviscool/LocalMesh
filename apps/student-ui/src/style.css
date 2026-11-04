@@ -157,3 +157,28 @@ body.viewer-page { background: #000; }
 }
 .viewer-tip.hidden { display: none; }
 @keyframes tipBreathe { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
+
+/* ---------- W4 学生端打磨 ---------- */
+.viewer-banner {
+  position: fixed; top: 14px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 9px;
+  padding: 8px 16px;
+  background: rgba(10, 13, 20, 0.8);
+  border: 1px solid var(--border-bright);
+  border-radius: var(--r-full);
+  color: var(--text); font-size: 12.5px;
+  backdrop-filter: blur(16px);
+  transition: opacity var(--t-fade);
+  z-index: 10;
+}
+.viewer-banner.hidden { opacity: 0; pointer-events: none; }
+
+#bar.collapsed { margin-left: calc(100% - 30px); }
+.bar-collapse {
+  width: 22px; height: 22px;
+  border: 1px solid var(--border); border-radius: var(--r-xs);
+  background: transparent; color: var(--muted);
+  font-size: 11px; cursor: pointer;
+  --app-region: no-drag;
+}
+.bar-collapse:hover { color: var(--text); }

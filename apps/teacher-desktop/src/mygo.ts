@@ -149,6 +149,8 @@ export interface Config {
   offline: OfflineConfig;
   log: LogConfig;
   network: NetworkConfig;
+  ui: UIConfig;
+  hotkeys: HotkeysConfig;
 }
 
 /** DeviceInfo is one discovered student machine. */
@@ -216,6 +218,10 @@ export interface HardwareTelemetry {
   disks: DiskPartition[];
   gpu: GPUInfo;
   network: NetAdapter[];
+}
+
+export interface HotkeysConfig {
+  lock: string;
 }
 
 /** inputEventPayload mirrors screen.InputEvent as sent from the page. */
@@ -517,6 +523,14 @@ export interface ThumbnailsConfig {
 }
 
 export type ToolType = string;
+
+export interface UIConfig {
+  theme: string;
+  card_size: string;
+  sort: string;
+  sound: boolean;
+  favorite_channels: number[];
+}
 
 // ---- Services ----
 
@@ -935,9 +949,17 @@ export const SceneService = {
 
 /** ConfigService exposes the runtime configuration to the settings page. */
 export const ConfigService = {
+  /** ConfigPath returns the config file location for display. */
+  configPath(): Promise<string> {
+    return call("ConfigService.ConfigPath");
+  },
   /** ExportConfig asks where to save the config and writes it. Returns "" on cancel. */
   exportConfig(): Promise<string> {
     return call("ConfigService.ExportConfig");
+  },
+  /** FavoriteChannels returns the favorite channel list. */
+  favoriteChannels(): Promise<number[]> {
+    return call("ConfigService.FavoriteChannels");
   },
   /** Get returns the current configuration. */
   get(): Promise<Config> {
@@ -946,6 +968,10 @@ export const ConfigService = {
   /** ImportConfig opens a TOML file and applies it immediately. */
   importConfig(): Promise<boolean> {
     return call("ConfigService.ImportConfig");
+  },
+  /** RestoreDefaults resets the config to built-in defaults and applies them. */
+  restoreDefaults(): Promise<Config> {
+    return call("ConfigService.RestoreDefaults");
   },
   /**
    * Update persists new settings; broadcast changes take effect on the next

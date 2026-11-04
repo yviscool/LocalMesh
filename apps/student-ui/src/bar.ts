@@ -89,8 +89,25 @@ async function refreshQuiz() {
       body.textContent = "暂无进行中的测验";
       return;
     }
+    // 已交卷状态持久（本机标记）
+    if (localStorage.getItem("lm.quiz.done." + status.quiz.id) === "1") {
+      body.textContent = "✅ 已交卷，等待老师收卷";
+      return;
+    }
     quizPicked = {};
     quizText = {};
+    const quizId = status.quiz.id;
+    const quizRemain = status.time_remain;
+    const remainEl = document.createElement("div");
+    remainEl.style.cssText = "font-size:11px;color:var(--muted);margin-bottom:8px";
+    const tick = () => {
+      const r = Math.max(0, quizRemain - Math.floor((Date.now() - openedAt) / 1000));
+      remainEl.textContent = "⏱ 剩余 " + String(Math.floor(r / 60)).padStart(2, "0") + ":" + String(r % 60).padStart(2, "0");
+    };
+    const openedAt = Date.now();
+    tick();
+    const remainTimer = setInterval(tick, 1000);
+    setTimeout(() => clearInterval(remainTimer), quizRemain * 1000 + 2000);
     body.replaceChildren(
       ...status.quiz.questions.map((q) => {
         const wrap = document.createElement("div");
@@ -129,6 +146,7 @@ async function refreshQuiz() {
     submit.addEventListener("click", async () => {
       if (Object.keys(quizPicked).length === 0) return;
       try {
+        localStorage.setItem("lm.quiz.done." + quizId, "1");
         const answers = { ...quizPicked };
         // 文字题合并进提交（教师端批阅）
         if (Object.keys(quizText).length) {

@@ -48,8 +48,16 @@ export function renderChat() {
     log.append(el("div", { class: "event-empty" }, "还没有消息，向全班说点什么吧"));
     return;
   }
+  let lastDay = "";
   for (const msg of chat) {
-    log.append(bubble(msg));
+    const day = new Date(msg.timestamp).toLocaleDateString("zh-CN");
+    if (day !== lastDay) {
+      lastDay = day;
+      log.append(el("div", { class: "chat-day" }, day));
+    }
+    const bubbleEl = bubble(msg);
+    bubbleEl.title = new Date(msg.timestamp).toLocaleString("zh-CN");
+    log.append(bubbleEl);
   }
   log.scrollTop = log.scrollHeight;
 }
@@ -109,16 +117,16 @@ export function renderHands() {
     return;
   }
 
-  for (const hand of hands) {
-    panel.append(handCard(hand));
-  }
+  hands.forEach((hand, i) => {
+    panel.append(handCard(hand, i === 0));
+  });
 }
 
-function handCard(hand: HandRecord): HTMLElement {
+function handCard(hand: HandRecord, isNext: boolean): HTMLElement {
   return el(
     "div",
-    { class: "hand-card" },
-    el("span", { class: "hand-emoji" }, "✋"),
+    { class: "hand-card" + (isNext ? ' style="border-color:rgba(91,140,255,0.5)"' : "") },
+    el("span", { class: "hand-emoji" }, isNext ? "👉" : "✋"),
     el(
       "div",
       { class: "hand-info" },

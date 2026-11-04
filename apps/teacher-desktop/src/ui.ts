@@ -42,14 +42,30 @@ export function fmtClock(secs: number): string {
 
 /* ---------- Toast ---------- */
 
-export function toast(icon: string, text: string, ms = 3200) {
+export function toast(
+  icon: string,
+  text: string,
+  ms = 3200,
+  opts?: { level?: "info" | "warn" | "danger"; action?: { label: string; run: () => void } },
+) {
   const root = document.getElementById("toast-root")!;
-  const item = el(
-    "div",
-    { class: "toast" },
-    el("span", { class: "t-ico" }, icon),
-    el("span", {}, text),
-  );
+  // 最多同屏 4 条：最旧的先走
+  while (root.children.length >= 4) root.firstElementChild?.remove();
+
+  const item = el("div", { class: "toast" }, el("span", { class: "t-ico" }, icon));
+  const level = opts?.level;
+  if (level) item.dataset.level = level;
+  item.append(el("span", {}, text));
+  if (opts?.action) {
+    item.append(el("button", {
+      class: "btn-sm",
+      style: "margin-left:8px",
+      onclick: () => {
+        item.remove();
+        opts.action!.run();
+      },
+    }, opts.action.label));
+  }
   root.append(item);
   setTimeout(() => {
     item.classList.add("leaving");
@@ -96,6 +112,17 @@ export function openModal(
   );
 
   modal.append(head, body, foot);
+  // 回车触发主按钮（输入框内回车不误触多行控件）
+  modal.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" || e.shiftKey) return;
+    const tag = (e.target as HTMLElement).tagName;
+    if (tag === "TEXTAREA" || tag === "SELECT") return;
+    const primary = foot.querySelector<HTMLButtonElement>(".btn.primary, .btn.danger");
+    if (primary && !primary.disabled) {
+      e.preventDefault();
+      primary.click();
+    }
+  });
   backdrop.append(modal);
   backdrop.addEventListener("click", (e) => {
     if (e.target === backdrop) close();

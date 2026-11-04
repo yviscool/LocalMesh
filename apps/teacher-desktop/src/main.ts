@@ -138,7 +138,7 @@ function renderCommandbar() {
     }
     const btn = el("button", { class: "cmd", title: cmd.label, onclick: () => cmd.run() },
       el("span", { class: "ico" }, cmd.icon),
-      el("span", {}, cmd.label));
+      el("span", { class: "cmd-label" }, cmd.label));
     btn.dataset.cmd = cmd.label;
     bar.append(btn);
   }
@@ -428,6 +428,17 @@ async function boot() {
 
   // 拖框多选
   installRubberBand();
+
+  // 抽屉折叠（记忆 + 窄屏自动折叠）
+  const drawer = document.getElementById("drawer")!;
+  const toggle = el("button", { id: "drawer-toggle", title: "收起/展开侧栏", onclick: () => {
+    const collapsed = document.body.classList.toggle("drawer-collapsed");
+    localStorage.setItem("lm.drawer", collapsed ? "1" : "0");
+  } }, "»");
+  drawer.append(toggle);
+  if (localStorage.getItem("lm.drawer") === "1" || window.innerWidth <= 1280) {
+    document.body.classList.add("drawer-collapsed");
+  }
 
   // 主题
   document.body.dataset.theme = localStorage.getItem("lm.theme") || "dark";

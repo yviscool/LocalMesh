@@ -2,17 +2,45 @@
 
 import type { AppState } from "../state";
 import { store } from "../state";
-import { el } from "../ui";
+import { el, showMenuAt } from "../ui";
+import { ConfigService } from "../mygo";
 
 export function renderStatusbar() {
   const s: AppState = store.get();
   const left = document.getElementById("status-left")!;
   const children: (HTMLElement | null)[] = [
     st(s.devices.length > 0, "🖥️", "在线", `${s.devices.length} 台`),
-    st(true, "📡", "频道", `${s.channel.channel_id}`),
-    broadcastStatus(s),
-    audioStatus(s),
-    lockStatus(s),
+    (() => {
+      const n = st(true, "📡", "频道", `${s.channel.channel_id}`);
+      n.style.cursor = "pointer";
+      n.title = "点击切换频道（收藏）";
+      n.addEventListener("click", (e) => {
+        e.stopPropagation();
+        void import("../views/modals").then(async (m) => {
+          const favorites = (await ConfigService.favoriteChannels()) ?? [];
+          const rect = n.getBoundingClientRect();
+          const items: any[] = favorites.map((ch: number) => ({
+            icon: ch === s.channel.channel_id ? "●" : "○",
+            label: "频道 " + ch,
+            run: () => void import("../mygo").then((mm) => mm.ClassroomService.setChannel(ch)),
+          }));
+          items.push({ separator: true, label: "", run: () => undefined });
+          items.push({ icon: "📡", label: "频道设置…", run: () => m.openChannelModal() });
+          showMenuAt(rect.left, rect.top - 8 - items.length * 34, items);
+        });
+      });
+      return n;
+    })(),
+    (() => {
+      const n = broadcastStatus(s);
+      n.classList.add("st-broadcast");
+      n.style.cursor = "pointer";
+      n.title = "屏幕广播";
+      n.addEventListener("click", () => void import("../views/modals").then((m) => m.openBroadcastModal()));
+      return n;
+    })(),
+    (() => { const n = audioStatus(s); n.classList.add("st-audio"); return n; })(),
+    (() => { const n = lockStatus(s); n.classList.add("st-lock"); return n; })(),
     quizLive(s),
     bell(s),
   ];

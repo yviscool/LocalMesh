@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"localmesh/internal/capabilities/attendance"
@@ -361,6 +362,32 @@ func (s *ConfigService) Update(_ context.Context, cfg desktopconfig.Config) erro
 		ThumbnailQuality:    cfg.Thumbnails.Quality,
 	})
 	return nil
+}
+
+// RestoreDefaults resets the config to built-in defaults and applies them.
+func (s *ConfigService) RestoreDefaults(_ context.Context) (desktopconfig.Config, error) {
+	cfg := desktopconfig.Defaults()
+	if err := cfg.Save(desktopconfig.Path()); err != nil {
+		return cfg, err
+	}
+	s.c.cfg = cfg
+	logging.SetLevel(cfg.Log.Level)
+	s.c.hub.setAgentConfig(&AgentConfigSection{
+		ThumbnailIntervalMS: cfg.Thumbnails.IntervalMS,
+		ThumbnailQuality:    cfg.Thumbnails.Quality,
+	})
+	return cfg, nil
+}
+
+// FavoriteChannels returns the favorite channel list.
+func (s *ConfigService) FavoriteChannels(_ context.Context) []int {
+	return s.c.cfg.UI.FavoriteChannels
+}
+
+// ConfigPath returns the config file location for display.
+func (s *ConfigService) ConfigPath(_ context.Context) string {
+	path, _ := filepath.Abs(desktopconfig.Path())
+	return path
 }
 
 // ExportConfig asks where to save the config and writes it. Returns "" on cancel.
