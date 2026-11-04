@@ -160,6 +160,7 @@ export interface AppState {
   notifications: NotificationItem[];
   unreadNotifications: number;
   quizLive: { active: boolean; time_remain: number; submissions: number } | null;
+  classState: { active: boolean; started_at: string } | null;
 }
 
 const initial: AppState = {
@@ -198,6 +199,7 @@ const initial: AppState = {
   notifications: [],
   unreadNotifications: 0,
   quizLive: null,
+  classState: null,
 };
 
 type Listener = (state: AppState) => void;

@@ -440,6 +440,23 @@ func (s *ConfigService) ImportConfig(ctx context.Context) (bool, error) {
 	return true, nil
 }
 
+// ClassStatus is the classroom-mode state for the console chrome.
+type ClassStatus struct {
+	Active    bool   `json:"active"`
+	StartedAt string `json:"started_at,omitempty"`
+}
+
+// Status reports whether a class scene is currently running.
+func (s *SceneService) Status(_ context.Context) (ClassStatus, error) {
+	s.c.mu.Lock()
+	defer s.c.mu.Unlock()
+	st := s.c.classStart.Format(time.RFC3339)
+	if s.c.classStart.IsZero() {
+		st = ""
+	}
+	return ClassStatus{Active: s.c.classActive, StartedAt: st}, nil
+}
+
 // SceneService orchestrates one-click class start/stop (上课/下课).
 type SceneService struct{ c *Console }
 
@@ -486,6 +503,7 @@ func (s *SceneService) StartClass(_ context.Context, opts ClassSceneOptions) err
 
 	s.c.mu.Lock()
 	s.c.classActive = true
+	s.c.classStart = time.Now()
 	s.c.mu.Unlock()
 	return nil
 }
@@ -505,6 +523,7 @@ func (s *SceneService) StopClass(_ context.Context) error {
 
 	s.c.mu.Lock()
 	s.c.classActive = false
+	s.c.classStart = time.Time{}
 	s.c.mu.Unlock()
 	return nil
 }

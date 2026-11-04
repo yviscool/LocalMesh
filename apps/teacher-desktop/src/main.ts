@@ -17,7 +17,7 @@ import {
 } from "./mygo";
 import { applyClassroom } from "./views/mosaic";
 import { refreshSeating, renderSeating } from "./views/seating";
-import { installRubberBand } from "./views/mosaic";
+import { installRubberBand, installStaleWatcher, togglePatrol } from "./views/mosaic";
 import { openStudentDetail } from "./views/detail";
 import { buildPaletteEntries, openPalette } from "./views/notify";
 import { playCue, setSoundEnabled, soundEnabled } from "./sound";
@@ -91,6 +91,12 @@ const menuGroups: MenuGroup[] = [
   { icon: "🧰", label: "工具", items: [
     { icon: "💻", label: "脚本终端", run: () => openScriptModal() },
     { icon: "📋", label: "资产盘点", run: () => openInventoryModal() },
+    { icon: "🔄", label: "监控轮巡", run: () => togglePatrol() },
+    { icon: "👁️", label: "隐私模式", run: () => {
+        const on = document.body.classList.toggle("privacy-mode");
+        localStorage.setItem("lm.privacy", on ? "1" : "0");
+        toast("👁️", on ? "隐私模式：已隐藏机位地址" : "隐私模式关闭");
+      } },
     { icon: "⚙️", label: "设置", run: () => openSettingsModal() },
   ]},
 ];
@@ -121,10 +127,40 @@ async function runSceneStart() {
 }
 
 async function runSceneStop() {
+  // 下课二次确认（不可逆：广播/守护/策略全还原）
+  const { openConfirm } = await import("./views/confirm");
+  openConfirm("⏹", "确认下课？", "广播、伴音、离线守护与网络策略将全部还原。", async () => {
+    try {
+      await SceneService.stopClass();
+      store.log("⏹", "下课场景已还原");
+      toast("⏹", "下课，全部还原");
+    } catch (err) { toast("⚠️", String(err)); }
+  });
+}
+
+/** 一键锁屏：使用上次预设立即执行（弹层仅用于自定义）。 */
+async function quickLock() {
+  let preset: { title: string; message: string; inputOnly: boolean };
   try {
-    await SceneService.stopClass();
-    store.log("⏹", "下课场景已还原");
-    toast("⏹", "下课，全部还原");
+    preset = JSON.parse(localStorage.getItem("lm.lockPreset") || "null") ??
+      { title: "全屏专注模式", message: "请注意听讲，注意看教师屏幕演示！", inputOnly: false };
+  } catch {
+    preset = { title: "全屏专注模式", message: "请注意听讲，注意看教师屏幕演示！", inputOnly: false };
+  }
+  try {
+    await ControlService.lockStudents(preset.title, preset.message, preset.inputOnly);
+    store.log("🔒", "黑屏肃静已下发（上次预设）");
+    toast("🔒", "锁定指令已下发", 3000, { level: "warn" });
+  } catch (err) { toast("⚠️", String(err)); }
+}
+
+/** 一键广播：直接开播教师屏幕。 */
+async function quickBroadcast() {
+  try {
+    const st = await BroadcastService.startTeacher();
+    store.set({ broadcast: st });
+    store.log("📣", "教师屏幕广播已开启");
+    toast("📣", "广播已开播");
   } catch (err) { toast("⚠️", String(err)); }
 }
 
@@ -159,6 +195,28 @@ function openDropdown(e: MouseEvent, group: MenuGroup) {
     return { icon: item.icon, label: item.label, run: item.run, danger: false };
   });
   showMenuAt(rect.left, rect.bottom + 6, items);
+}
+
+/** 课堂态：顶栏计时器 + 按钮层级 + 下课红钮。 */
+function renderClassMode() {
+  const s = store.get();
+  const active = s.classState?.active ?? false;
+  document.body.classList.toggle("class-active", active);
+
+  let timer = document.getElementById("class-timer");
+  if (!active) {
+    timer?.remove();
+    return;
+  }
+  if (!timer) {
+    timer = el("div", { id: "class-timer", style: "margin-left:auto; margin-right:12px" });
+    $("#titlebar").append(timer);
+  }
+  const started = s.classState?.started_at ? new Date(s.classState.started_at).getTime() : Date.now();
+  const secs = Math.max(0, Math.floor((Date.now() - started) / 1000));
+  const mm = String(Math.floor(secs / 60)).padStart(2, "0");
+  const ss = String(secs % 60).padStart(2, "0");
+  timer.replaceChildren(el("span", { class: "class-live-dot" }), el("b", {}, `上课中 ${mm}:${ss}`));
 }
 
 function refreshCommandStates() {
@@ -426,8 +484,12 @@ async function boot() {
   void refreshGroups();
   window.addEventListener("groups-changed", () => void refreshGroups());
 
-  // 拖框多选
+  // 拖框多选 + 陈旧检查
   installRubberBand();
+  installStaleWatcher();
+
+  // 隐私模式（投影时隐藏 IP/端点）
+  if (localStorage.getItem("lm.privacy") === "1") document.body.classList.add("privacy-mode");
 
   // 抽屉折叠（记忆 + 窄屏自动折叠）
   const drawer = document.getElementById("drawer")!;
@@ -462,22 +524,25 @@ async function boot() {
     }
   });
 
-  // 状态微轮询：伴音/锁定/测验常驻条
+  // 状态微轮询：伴音/锁定/测验常驻条/课堂态
   setInterval(async () => {
     try {
-      const [audio, lock, quiz] = await Promise.all([
+      const [audio, lock, quiz, classSt] = await Promise.all([
         BroadcastService.audioStatus(),
         ControlService.lockState(),
         TeachingService.activeQuiz(),
+        SceneService.status(),
       ]);
       store.set({
         audio,
         lock: { state: lock.state, is_trapping: lock.is_trapping },
         quizLive: quiz.quiz ? { active: quiz.active, time_remain: quiz.time_remain, submissions: quiz.submissions } : null,
+        classState: { active: classSt.active, started_at: classSt.started_at ?? "" },
       });
     } catch { /* ignore */ }
   }, 5000);
   setInterval(refreshCommandStates, 1000);
+  setInterval(renderClassMode, 1000);
 
   // 全局快捷键：Ctrl+Shift+L 一键解锁
   document.addEventListener("keydown", (e) => {

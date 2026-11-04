@@ -111,6 +111,12 @@ export interface ClassSceneOptions {
   offline_guard: boolean;
 }
 
+/** ClassStatus is the classroom-mode state for the console chrome. */
+export interface ClassStatus {
+  active: boolean;
+  started_at?: string;
+}
+
 /**
  * ClassroomDelta is the incremental classroom update pushed to the page.
  * The first emission carries the full snapshot (Full=true); afterwards only
@@ -940,6 +946,10 @@ export const SceneService = {
    */
   startClass(opts: ClassSceneOptions): Promise<void> {
     return call("SceneService.StartClass", opts);
+  },
+  /** Status reports whether a class scene is currently running. */
+  status(): Promise<ClassStatus> {
+    return call("SceneService.Status");
   },
   /** StopClass runs the 下课 scene: unlock, network reset, broadcast/audio off. */
   stopClass(): Promise<void> {

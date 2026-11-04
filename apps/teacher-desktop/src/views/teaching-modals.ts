@@ -161,6 +161,13 @@ export function openQuizModal() {
 
   const titleInput = el("input", { type: "text", value: "课堂小测", placeholder: "测验标题" }) as HTMLInputElement;
   const timeInput = el("input", { type: "number", value: "120", min: "10", max: "3600" }) as HTMLInputElement;
+  const timeChips = el("div", { class: "quiz-time-chips" });
+  for (const s of [30, 60, 120, 300]) {
+    timeChips.append(el("button", {
+      class: "chip",
+      onclick: () => { timeInput.value = String(s); },
+    }, s < 60 ? s + "s" : (s / 60) + "m"));
+  }
 
   const questions: QuizQuestion[] = [];
   const builder = el("div");
@@ -283,6 +290,7 @@ export function openQuizModal() {
       field("测验标题", titleInput),
       field("限时（秒）", timeInput),
     ),
+    timeChips,
     builder,
     addBtn,
     live,
@@ -489,11 +497,23 @@ export function openScriptModal() {
   ) as HTMLSelectElement;
   const content = el("textarea", { placeholder: "Get-Process | Select-Object -First 5" }) as HTMLTextAreaElement;
   const output = el("div", { class: "output-console" }, "输出会显示在这里");
+  const historyWrap = el("div");
+  try {
+    const hist: { t: string; s: string }[] = JSON.parse(localStorage.getItem("lm.scriptHistory") || "[]");
+    if (hist.length) {
+      historyWrap.append(el("div", { style: "font-size:11px;color:var(--faint);margin:10px 0 5px" }, "最近执行"));
+      for (const h of hist) {
+        historyWrap.append(el("div", { class: "kv", style: "padding:5px 10px" },
+          el("span", { class: "k" }, h.s), el("span", { class: "v" }, h.t)));
+      }
+    }
+  } catch { /* ignore */ }
 
   body.append(
     field("脚本类型", typeSel),
     field("脚本内容", content, "Phase 0 演示：脚本在教师机本机执行，输出实时回显"),
     output,
+    historyWrap,
   );
 
   foot.append(
@@ -518,6 +538,11 @@ export function openScriptModal() {
             el("div", {}, result.stdout || ""),
             ...(result.stderr ? [el("div", { class: "exit-err" }, result.stderr)] : []),
           );
+          try {
+            const hist: { t: string; s: string }[] = JSON.parse(localStorage.getItem("lm.scriptHistory") || "[]");
+            hist.unshift({ t: new Date().toLocaleTimeString("zh-CN"), s: `${typeSel.value}: exit ${result.exit_code}` });
+            localStorage.setItem("lm.scriptHistory", JSON.stringify(hist.slice(0, 5)));
+          } catch { /* ignore */ }
           store.log("💻", `脚本执行完成（exit ${result.exit_code}）`);
         } catch (err) {
           output.textContent = `执行失败：${errMsg(err)}`;

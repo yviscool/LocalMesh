@@ -165,13 +165,48 @@ async function refreshQuiz() {
   }
 }
 
+/* 测验键盘 A/B/C/D */
+document.addEventListener("keydown", (e) => {
+  if (!$("#quiz-pop").classList.contains("open")) return;
+  const key = e.key.toUpperCase();
+  const idx = { A: 0, B: 1, C: 2, D: 3 }[key];
+  if (idx === undefined) return;
+  const picked = document.querySelectorAll(".quiz-opt.picked");
+  void idx;
+  const opts = document.querySelectorAll(".quiz-opt");
+  const perQ = Math.max(1, Math.floor(opts.length / Math.max(1, Object.keys(quizPicked).length || 1)));
+  void perQ;
+  const first = document.querySelector<HTMLElement>(".quiz-q .quiz-opt:nth-child(" + (idx + 1) + ")");
+  first?.click();
+});
+
+/* 学生端音效（收到文件/测验开始） */
+function studentCue(freq: number) {
+  try {
+    const ctx = new AudioContext();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0.1, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.18);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.18);
+    setTimeout(() => ctx.close(), 400);
+  } catch { /* no audio */ }
+}
+
 /* 页面事件 */
 events.uiNotify.on((n) => {
   if (n.type === "file") {
     $("#bar-status").textContent = n.title || "收到新文件";
+    studentCue(660);
   }
   if (n.type === "file_progress") {
     $("#bar-status").textContent = n.title || "";
+  }
+  if (n.type === "quiz") {
+    studentCue(880);
   }
 });
 

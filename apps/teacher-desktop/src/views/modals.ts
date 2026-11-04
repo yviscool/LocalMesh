@@ -2,7 +2,7 @@
 
 import { store } from "../state";
 import { clear, el, field, onModalClose, openModal, optionCards, toast } from "../ui";
-import { AuditService, BroadcastService, ClassroomService, ConfigService, ControlService, GroupCastService, GroupService, events } from "../mygo";
+import { AuditService, BroadcastService, ClassroomService, ConfigService, ControlService, GroupCastService, GroupService, RosterService, events } from "../mygo";
 import { errMsg } from "./seating";
 import { groupColor } from "../logic";
 
@@ -255,6 +255,7 @@ export async function openFirewallModal() {
   );
 
   let fwMode = policy.mode || "allow_all";
+  void policy;
   const fwCards = optionCards(
     [
       { value: "allow_all", icon: "🌐", title: "开放网络", desc: "允许全部网络访问" },
@@ -301,6 +302,7 @@ export async function openFirewallModal() {
   const offlineField = field("断网锁定宽限（秒）", leaseInput, "勾选后：学生机断网超过宽限期将自动锁屏警告，恢复连接后解除");
   offlineField.prepend(el("label", { class: "check-row" }, offlineCheck, "启用离线守护"));
 
+  const policyNow = el("div", { class: "hint", style: "color:var(--muted); font-size:11px" }, "当前未应用网络策略");
   const results = el("div", { class: "kv-list" });
 
   const applyFw = async () => {
@@ -321,6 +323,7 @@ export async function openFirewallModal() {
         });
       }
       store.log("🛡️", `网络策略 ${fwMode} → ${target === "students" ? "全部学生机" : "本机"}`);
+      policyNow.textContent = "当前生效：" + fwMode + (fwMode === "block_sites" ? "（黑名单 " + (blockedInput.value || "—") + "）" : "");
       toast("🛡️", "网络策略已应用");
     } catch (err) {
       toast("⚠️", errMsg(err));

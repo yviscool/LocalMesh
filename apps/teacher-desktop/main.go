@@ -88,6 +88,7 @@ type Console struct {
 	inputMu      sync.Mutex
 	inputConns   map[string]*inputConn
 	classActive  bool
+	classStart   time.Time
 
 	win  *mygo.Window
 	tray *mygo.Tray

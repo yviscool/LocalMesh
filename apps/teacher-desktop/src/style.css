@@ -881,3 +881,43 @@ body.drawer-collapsed #drawer-toggle { position: fixed; right: 8px; top: 50vh; }
   color: var(--faint);
   margin: 6px 0;
 }
+
+/* ---------- R1 课堂态 ---------- */
+#class-timer {
+  display: flex; align-items: center; gap: 7px;
+  padding: 5px 13px;
+  border-radius: var(--r-full);
+  background: var(--grad);
+  color: #fff;
+  font-size: var(--fs-sm);
+  box-shadow: 0 0 16px rgba(91, 140, 255, 0.5);
+  white-space: nowrap;
+}
+#class-timer .class-live-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: #fff;
+  animation: pulse 1.2s ease infinite;
+}
+body.class-active #commandbar .cmd:not([data-quick]) { opacity: 0.45; }
+body.class-active #commandbar .cmd:hover { opacity: 1; }
+body.class-active #commandbar .cmd[data-cmd="下课"] {
+  background: var(--danger); color: #fff; opacity: 1;
+  box-shadow: 0 0 14px rgba(255, 91, 106, 0.5);
+}
+body.class-active #class-timer { margin-left: auto; }
+
+/* ---------- R2 马赛克 ---------- */
+.dev-card.stale .dev-screen img { opacity: 0.5; transition: opacity 0.6s; }
+.dev-card.stale .status-dot { background: var(--faint); box-shadow: none; }
+body.privacy-mode .dev-addr { visibility: hidden; }
+@keyframes popStagger {
+  from { opacity: 0; transform: scale(0.9) translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+.dev-card.stagger { animation: popStagger 0.35s ease backwards; }
+
+/* ---------- R3 弹层精修 ---------- */
+.quiz-time-chips { display: flex; gap: 5px; margin-top: 6px; }
+.quiz-time-chips .chip { height: 24px; padding: 0 10px; }
+.field-error { color: var(--danger); font-size: 11px; margin-top: 5px; }
+.inline-kv { margin: 10px 0; }

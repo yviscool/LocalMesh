@@ -7,7 +7,7 @@ import type { DeviceInfo, ThumbnailInfo } from "../state";
 import { store, thumbURL } from "../state";
 import { clear, el, showMenuAt, toast } from "../ui";
 import { filterByGroup, groupColor, groupOfDevice, sortDevices } from "../logic";
-import { ControlService, GroupService } from "../mygo";
+import { ControlService, GroupService, MonitorService } from "../mygo";
 
 interface CardRefs {
   root: HTMLElement;
@@ -62,11 +62,16 @@ export function applyClassroom() {
     }
   }
 
+  const burst = visible.length > cards.size + 2; // 批量上线时交错弹入
   visible.forEach((device, i) => {
     let card = cards.get(device.device_id);
     if (!card) {
-      card = createCard(device);
-      cards.set(device.device_id, card);
+      const fresh = createCard(device);
+      fresh.root.style.animationDelay = burst ? `${Math.min(i * 70, 700)}ms` : "0ms";
+      fresh.root.classList.add("stagger");
+      setTimeout(() => fresh.root.classList.remove("stagger"), 900);
+      cards.set(device.device_id, fresh);
+      card = fresh;
     }
     if (card.addrEl.textContent !== device.endpoint) {
       card.addrEl.textContent = device.endpoint;
@@ -117,11 +122,16 @@ function createCard(device: DeviceInfo): CardRefs {
     {
       class: "dev-card",
       "data-device": device.device_id,
-      onclick: () => {
+      onclick: (e) => {
         if (clickTimer !== null) return;
         clickTimer = window.setTimeout(() => {
           clickTimer = null;
-          toggleSelect(device.device_id);
+          const me = e as MouseEvent;
+          if (me.shiftKey) {
+            selectRange(device.device_id);
+          } else {
+            toggleSelect(device.device_id);
+          }
         }, 220);
       },
       ondblclick: () => {
@@ -189,7 +199,32 @@ function devAct(icon: string, title: string, onClick: () => void): HTMLElement {
   }, icon);
 }
 
+let lastClickedID: string | null = null;
+
+/** Shift 点选：选中上一次点击到当前之间的范围。 */
+function selectRange(deviceID: string) {
+  if (!lastClickedID) {
+    toggleSelect(deviceID);
+    return;
+  }
+  const ids = store.get().devices.map((d) => d.device_id);
+  const i1 = ids.indexOf(lastClickedID);
+  const i2 = ids.indexOf(deviceID);
+  if (i1 === -1 || i2 === -1) {
+    toggleSelect(deviceID);
+    return;
+  }
+  const selected = new Set(store.get().selected);
+  for (let i = Math.min(i1, i2); i <= Math.max(i1, i2); i++) {
+    const id = ids[i];
+    if (id) selected.add(id);
+  }
+  store.set({ selected });
+  lastClickedID = deviceID;
+}
+
 function toggleSelect(deviceID: string) {
+  lastClickedID = deviceID;
   const selected = new Set(store.get().selected);
   if (selected.has(deviceID)) selected.delete(deviceID);
   else selected.add(deviceID);
@@ -284,6 +319,47 @@ function renderToolbar() {
       onclick: () => { store.set({ cardSize: size }); localStorage.setItem("lm.card", size); applyClassroom(); },
     }, size));
   }
+}
+
+/** 画面陈旧检查：>8s 未更新渐灰。 */
+export function installStaleWatcher() {
+  setInterval(() => {
+    const now = Date.now();
+    for (const [id, card] of cards) {
+      const thumb = store.get().thumbs.get(id);
+      if (!thumb) continue;
+      const age = now - new Date(thumb.timestamp).getTime();
+      card.root.classList.toggle("stale", age > 8000);
+    }
+  }, 3000);
+}
+
+/** 监控轮巡：每 10s 在同一监控窗内切换下一位。 */
+let patrolTimer: number | null = null;
+let patrolIndex = 0;
+
+export function togglePatrol() {
+  if (patrolTimer !== null) {
+    clearInterval(patrolTimer);
+    patrolTimer = null;
+    toast("🔄", "轮巡已停止");
+    return;
+  }
+  patrolTimer = window.setInterval(() => {
+    const visible = store.get().devices;
+    if (visible.length === 0) return;
+    const d = visible[patrolIndex % visible.length];
+    patrolIndex++;
+    if (d) void MonitorService.openWindow(d.device_id).catch(() => {});
+  }, 10000);
+  // 立即开始第一位
+  const first = store.get().devices[patrolIndex % Math.max(1, store.get().devices.length)];
+  if (!first) return;
+  if (first) {
+    void MonitorService.openWindow(first.device_id).catch(() => {});
+    patrolIndex++;
+  }
+  toast("🔄", "监控轮巡已开启（10s/台）");
 }
 
 /** 拖框多选：空白处按下拖拽 → 橡皮筋选框。 */
