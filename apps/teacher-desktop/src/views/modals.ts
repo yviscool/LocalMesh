@@ -2,7 +2,7 @@
 
 import { store } from "../state";
 import { clear, el, field, onModalClose, openModal, optionCards, toast } from "../ui";
-import { AuditService, BroadcastService, ClassroomService, ControlService, GroupService, events } from "../mygo";
+import { AuditService, BroadcastService, ClassroomService, ConfigService, ControlService, GroupService, events } from "../mygo";
 import { errMsg } from "./seating";
 
 /* ---------- 屏幕广播 ---------- */
@@ -610,4 +610,62 @@ export async function openGroupModal() {
     listWrap,
   );
   await refresh();
+}
+
+/* ---------- 设置 ---------- */
+
+export async function openSettingsModal() {
+  const { body, foot, close } = openModal("⚙️", "设置");
+  const cfg = await ConfigService.get();
+
+  const fpsInput = el("input", { type: "number", value: String(cfg.broadcast.fps), min: "5", max: "30" }) as HTMLInputElement;
+  const qualityInput = el("input", { type: "number", value: String(cfg.broadcast.quality), min: "20", max: "95" }) as HTMLInputElement;
+  const budgetInput = el("input", { type: "number", value: String(cfg.broadcast.budget_mb_per_sec), min: "0", max: "100" }) as HTMLInputElement;
+  const thumbInterval = el("input", { type: "number", value: String(cfg.thumbnails.interval_ms), min: "500", max: "10000" }) as HTMLInputElement;
+  const leaseInput = el("input", { type: "number", value: String(cfg.offline.lease_seconds), min: "3", max: "120" }) as HTMLInputElement;
+  const logLevel = el("select", {},
+    el("option", { value: "debug" }, "debug"),
+    el("option", { value: "info" }, "info"),
+    el("option", { value: "warn" }, "warn"),
+    el("option", { value: "error" }, "error"),
+  ) as HTMLSelectElement;
+  logLevel.value = cfg.log.level;
+
+  body.append(
+    el("h3", { style: "font-size:13px; margin-bottom:10px" }, "📡 屏幕广播"),
+    el("div", { style: "display:flex; gap:10px" },
+      field("帧率 (fps)", fpsInput),
+      field("JPEG 质量", qualityInput),
+      field("带宽预算 (MB/s, 0=不限)", budgetInput),
+    ),
+    el("div", { class: "hint", style: "color:var(--faint); font-size:11px; margin-bottom:12px" }, "高丢包时系统会自动逐级下调，此为初始值"),
+    el("h3", { style: "font-size:13px; margin-bottom:10px" }, "🖼 缩略图"),
+    field("推送间隔 (ms)", thumbInterval),
+    el("h3", { style: "font-size:13px; margin-bottom:10px" }, "🔌 离线守护默认"),
+    field("宽限 (秒)", leaseInput),
+    el("h3", { style: "font-size:13px; margin-bottom:10px" }, "📜 日志"),
+    field("级别", logLevel, "端口等启动项暂用命令行参数，设置页覆盖运行时行为"),
+  );
+
+  foot.append(
+    el("button", { class: "btn", onclick: () => close() }, "取消"),
+    el("button", {
+      class: "btn primary",
+      onclick: async () => {
+        try {
+          await ConfigService.update({
+            broadcast: { fps: Number(fpsInput.value), quality: Number(qualityInput.value), budget_mb_per_sec: Number(budgetInput.value) },
+            thumbnails: { interval_ms: Number(thumbInterval.value), quality: cfg.thumbnails.quality },
+            offline: { enabled: cfg.offline.enabled, lease_seconds: Number(leaseInput.value) },
+            log: { level: logLevel.value, file: cfg.log.file },
+          });
+          store.log("⚙️", "设置已保存");
+          toast("⚙️", "设置已保存（广播项下次开播生效）");
+          close();
+        } catch (err) {
+          toast("⚠️", errMsg(err));
+        }
+      },
+    }, "保存"),
+  );
 }

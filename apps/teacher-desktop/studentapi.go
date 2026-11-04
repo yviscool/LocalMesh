@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"time"
 
 	"localmesh/internal/capabilities/attendance"
@@ -39,10 +40,16 @@ func (c *Console) handleAgentPoll(w http.ResponseWriter, r *http.Request) {
 	state, commands := c.poll(payload.DeviceID, payload.Acked)
 	c.recordEvents(payload.DeviceID, state.ChannelID, payload.Events)
 
+	// 50 机教室的轮询响应以 gzip 传输（Go 客户端透明解压）
 	writeJSON(w, http.StatusOK, map[string]any{
 		"state":    state,
 		"commands": commands,
-	})
+	}, acceptsGzip(r))
+}
+
+// acceptsGzip reports whether the client advertised gzip support.
+func acceptsGzip(r *http.Request) bool {
+	return strings.Contains(r.Header.Get("Accept-Encoding"), "gzip")
 }
 
 // handleStudentChat accepts a classroom chat message from a student.

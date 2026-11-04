@@ -39,6 +39,12 @@ export interface AudioStatus {
   target: string;
 }
 
+export interface BroadcastConfig {
+  fps: number;
+  quality: number;
+  budget_mb_per_sec: number;
+}
+
 export type BroadcastMode = string;
 
 /** BroadcastStatus describes the screen broadcast session. */
@@ -137,6 +143,13 @@ export interface Color {
   a: number;
 }
 
+export interface Config {
+  broadcast: BroadcastConfig;
+  thumbnails: ThumbnailsConfig;
+  offline: OfflineConfig;
+  log: LogConfig;
+}
+
 /** DeviceInfo is one discovered student machine. */
 export interface DeviceInfo {
   device_id: string;
@@ -230,6 +243,11 @@ export interface LockStatus {
   is_trapping: boolean;
 }
 
+export interface LogConfig {
+  level: string;
+  file: string;
+}
+
 export interface MemoryInfo {
   total_bytes: number;
   available_bytes: number;
@@ -255,6 +273,11 @@ export interface OSInfo {
   version: string;
   build_number: string;
   arch: string;
+}
+
+export interface OfflineConfig {
+  enabled: boolean;
+  lease_seconds: number;
 }
 
 /**
@@ -455,6 +478,11 @@ export interface ThumbnailInfo {
   sequence: number;
 }
 
+export interface ThumbnailsConfig {
+  interval_ms: number;
+  quality: number;
+}
+
 export type ToolType = string;
 
 // ---- Services ----
@@ -543,6 +571,13 @@ export const ControlService = {
   /** QueueCollect issues a homework collection instruction to all students. */
   queueCollect(pattern: string): Promise<void> {
     return call("ControlService.QueueCollect", pattern);
+  },
+  /**
+   * RunScriptOnStudents queues a script execution for the given devices
+   * ("*" = all); results arrive as agent audit events.
+   */
+  runScriptOnStudents(req: ScriptExecutionRequest, deviceIDs: string[]): Promise<void> {
+    return call("ControlService.RunScriptOnStudents", req, deviceIDs);
   },
   /** SendInputEvent forwards one input event to the agent's injector. */
   sendInputEvent(deviceID: string, payload: InputEventPayload): Promise<void> {
@@ -685,6 +720,21 @@ export const BroadcastService = {
    */
   startDemo(deviceID: string): Promise<BroadcastStatus> {
     return call("BroadcastService.StartDemo", deviceID);
+  },
+  /**
+   * StartDemoDirectPush switches 学生演示 to direct push: the demo student
+   * multicasts its own screen; the teacher stops relaying and only signals.
+   */
+  startDemoDirectPush(deviceID: string): Promise<void> {
+    return call("BroadcastService.StartDemoDirectPush", deviceID);
+  },
+  /**
+   * StartGroupBroadcast targets the main screen stream at one group: the group
+   * members are told to join a dedicated multicast port, the console fans the
+   * same encoded frames out to it.
+   */
+  startGroupBroadcast(groupID: string): Promise<void> {
+    return call("BroadcastService.StartGroupBroadcast", groupID);
   },
   /**
    * StartTeacher begins broadcasting the teacher screen: session state plus
@@ -839,6 +889,21 @@ export const SceneService = {
   /** StopClass runs the 下课 scene: unlock, network reset, broadcast/audio off. */
   stopClass(): Promise<void> {
     return call("SceneService.StopClass");
+  },
+} as const;
+
+/** ConfigService exposes the runtime configuration to the settings page. */
+export const ConfigService = {
+  /** Get returns the current configuration. */
+  get(): Promise<Config> {
+    return call("ConfigService.Get");
+  },
+  /**
+   * Update persists new settings; broadcast changes take effect on the next
+   * stream start.
+   */
+  update(cfg: Config): Promise<void> {
+    return call("ConfigService.Update", cfg);
   },
 } as const;
 

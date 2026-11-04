@@ -181,25 +181,27 @@ var EventAgentAudit = mygo.NewEvent[sqlite.AgentEvent]("agent:audit")
 // recordEvents persists agent-reported audit records and relays them to
 // the console UI.
 func (c *Console) recordEvents(deviceID string, channelID int, events []AgentEvent) {
+	if len(events) == 0 {
+		return
+	}
+	records := make([]sqlite.AgentEvent, 0, len(events))
 	for _, e := range events {
 		occurred, err := time.Parse(time.RFC3339, e.At)
 		if err != nil {
 			occurred = time.Now()
 		}
-		record := sqlite.AgentEvent{
-			EventID:    e.ID,
-			DeviceID:   deviceID,
-			ChannelID:  channelID,
-			Kind:       e.Kind,
-			Detail:     e.Detail,
-			OccurredAt: occurred,
-		}
-		if err := c.store.AppendAgentEvent(context.Background(), record); err != nil {
-			continue
-		}
-		if c.win == nil {
-			continue // test context or window not yet created
-		}
+		records = append(records, sqlite.AgentEvent{
+			EventID: e.ID, DeviceID: deviceID, ChannelID: channelID,
+			Kind: e.Kind, Detail: e.Detail, OccurredAt: occurred,
+		})
+	}
+	if err := c.store.AppendAgentEvents(context.Background(), records); err != nil {
+		return
+	}
+	if c.win == nil {
+		return // test context or window not yet created
+	}
+	for _, record := range records {
 		_ = EventAgentAudit.Emit(c.win, record)
 	}
 }

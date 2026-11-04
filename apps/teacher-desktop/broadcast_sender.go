@@ -10,6 +10,7 @@ import (
 	"mime"
 	"mime/multipart"
 	"net/http"
+	"sync"
 	"time"
 
 	"localmesh/internal/capabilities/broadcast"
@@ -24,12 +25,58 @@ const (
 	broadcastLogThrottle  = 10 * time.Second
 )
 
-// screenStream is the live teacher-screen (or student-demo relay) producer.
+// screenStream is the live broadcast producer: one capture loop feeding one
+// or more multicast senders (main stream + per-group fan-out).
 type screenStream struct {
 	cancel   context.CancelFunc
+	loop     *broadcast.CaptureSendLoop
 	sender   *broadcast.MulticastSender
-	capturer screen.HybridCapturer
+	provider *hybridProvider
 	source   string
+	groupMu  sync.Mutex
+	groupTX  map[string]*broadcast.MulticastSender // groupID -> sender
+}
+
+// fanOutGroup creates a group multicast sender that receives the same
+// encoded frames as the main stream (encoded once, sent N times).
+func (s *screenStream) fanOutGroup(groupID string, port int) error {
+	s.groupMu.Lock()
+	defer s.groupMu.Unlock()
+	if _, ok := s.groupTX[groupID]; ok {
+		return nil
+	}
+	addr := groupBroadcastAddr(port)
+	tx, err := broadcast.NewMulticastSender(broadcast.MulticastSenderConfig{
+		TargetAddr: addr,
+		FEC:        broadcast.DefaultFECConfig(),
+	})
+	if err != nil {
+		return err
+	}
+	s.groupTX[groupID] = tx
+	// 把组发送器挂进循环：循环每帧同时写主地址与组地址
+	if s.loop != nil {
+		s.loop.AttachSender(tx)
+	}
+	log.Printf("[Broadcast] group %s fan-out on %s", groupID, addr)
+	return nil
+}
+
+func (s *screenStream) stopGroups() {
+	s.groupMu.Lock()
+	defer s.groupMu.Unlock()
+	for id, tx := range s.groupTX {
+		_ = tx.Close()
+		if s.loop != nil {
+			s.loop.DetachSender(tx)
+		}
+		delete(s.groupTX, id)
+	}
+}
+
+// groupBroadcastAddr derives the per-group multicast endpoint.
+func groupBroadcastAddr(port int) string {
+	return fmt.Sprintf("239.255.42.1:%d", port)
 }
 
 // stats
@@ -41,8 +88,8 @@ func (s *screenStream) Stop() {
 	if s.cancel != nil {
 		s.cancel()
 	}
-	if s.capturer != nil {
-		_ = s.capturer.Close()
+	if s.provider != nil {
+		_ = s.provider.capturer.Close()
 	}
 	if s.sender != nil {
 		_ = s.sender.Close()
@@ -70,14 +117,29 @@ func (c *Console) startScreenStream(source string) error {
 	}
 
 	streamCtx, cancel := context.WithCancel(context.Background())
-	stream := &screenStream{cancel: cancel, sender: sender, source: source}
+	stream := &screenStream{cancel: cancel, sender: sender, source: source, groupTX: map[string]*broadcast.MulticastSender{}}
 
 	c.mu.Lock()
 	c.screenStream = stream
 	c.mu.Unlock()
 
 	if source == "teacher" {
-		go runCaptureLoop(streamCtx, stream)
+		provider, err := newHybridProvider()
+		if err != nil {
+			cancel()
+			_ = sender.Close()
+			c.mu.Lock()
+			c.screenStream = nil
+			c.mu.Unlock()
+			return fmt.Errorf("init capturer: %w", err)
+		}
+		stream.provider = provider
+		stream.loop = broadcast.NewCaptureSendLoop(broadcast.LoopOptions{
+			SourceID: "teacher",
+			FPS:      c.cfg.Broadcast.FPS,
+			Quality:  c.cfg.Broadcast.Quality,
+		}, provider, sender, c.cfg.Broadcast.BudgetMBPerSec*(1<<20))
+		go stream.loop.Run(streamCtx)
 	} else {
 		go runRelayLoop(streamCtx, stream, c)
 	}
@@ -92,6 +154,7 @@ func (c *Console) stopScreenStream() {
 	c.screenStream = nil
 	c.mu.Unlock()
 	if stream != nil {
+		stream.stopGroups()
 		stream.Stop()
 		log.Printf("[Broadcast] screen stream stopped")
 	}
@@ -104,66 +167,37 @@ func (c *Console) currentScreenMulticast() string {
 	return classroom.DeriveMulticastAddr(ch, broadcast.DefaultMulticastAddr)
 }
 
-// runCaptureLoop captures the local screen at a fixed rate and multicasts
-// JPEG frames with FEC.
-func runCaptureLoop(ctx context.Context, stream *screenStream) {
-	capturer, err := screen.NewHybridCapturer()
-	if err != nil {
-		log.Printf("[Broadcast] capturer init failed: %v", err)
-		return
-	}
-	stream.capturer = capturer
-
-	ticker := time.NewTicker(time.Second / broadcastFPS)
-	defer ticker.Stop()
-
-	var seq uint64
-	var lastErrLog time.Time
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-		}
-
-		frame, err := capturer.Capture()
-		if err != nil {
-			if err == screen.ErrNoNewFrame {
-				continue // nothing changed — reuse of cached frame not needed
-			}
-			if time.Since(lastErrLog) >= broadcastLogThrottle {
-				log.Printf("[Broadcast] capture error: %v", err)
-				lastErrLog = time.Now()
-			}
-			continue
-		}
-
-		var buf bytes.Buffer
-		if err := jpeg.Encode(&buf, frame.Image, &jpeg.Options{Quality: broadcastJPEGQuality}); err != nil {
-			continue
-		}
-
-		seq++
-		sf := broadcast.ScreenFrame{
-			Sequence:       seq,
-			Timestamp:      time.Now(),
-			SourceDeviceID: "teacher",
-			Width:          frame.Width,
-			Height:         frame.Height,
-			Payload:        buf.Bytes(),
-		}
-		if err := stream.sender.SendFrame(ctx, sf); err != nil {
-			if ctx.Err() != nil {
-				return
-			}
-			if time.Since(lastErrLog) >= broadcastLogThrottle {
-				log.Printf("[Broadcast] send error: %v", err)
-				lastErrLog = time.Now()
-			}
-		}
-	}
+// hybridProvider adapts the DXGI/GDI hybrid capturer to the shared
+// broadcast.FrameProvider interface.
+type hybridProvider struct {
+	capturer screen.HybridCapturer
 }
+
+func newHybridProvider() (*hybridProvider, error) {
+	cap, err := screen.NewHybridCapturer()
+	if err != nil {
+		return nil, err
+	}
+	return &hybridProvider{capturer: cap}, nil
+}
+
+func (p *hybridProvider) CaptureJPEG(quality int) ([]byte, int, int, bool, error) {
+	frame, err := p.capturer.Capture()
+	if err != nil {
+		if err == screen.ErrNoNewFrame {
+			return nil, 0, 0, false, nil
+		}
+		return nil, 0, 0, false, err
+	}
+	var buf bytes.Buffer
+	if err := jpeg.Encode(&buf, frame.Image, &jpeg.Options{Quality: quality}); err != nil {
+		return nil, 0, 0, false, err
+	}
+	return buf.Bytes(), frame.Width, frame.Height, true, nil
+}
+
+// broadcastBudgetBytes 默认推流带宽预算（4 MB/s，令牌桶按半桶突发）。
+const broadcastBudgetBytes = 4 << 20
 
 // runRelayLoop relays a student agent's MJPEG stream onto the multicast
 // group for 学生演示 — JPEG payloads pass through without re-encoding.
@@ -231,6 +265,17 @@ func runRelayLoop(ctx context.Context, stream *screenStream, c *Console) {
 			}
 		}
 	}
+}
+
+// fanOutToGroup creates the group sender on the running stream.
+func (c *Console) fanOutToGroup(groupID string, port int) error {
+	c.mu.Lock()
+	stream := c.screenStream
+	c.mu.Unlock()
+	if stream == nil {
+		return fmt.Errorf("no active screen stream")
+	}
+	return stream.fanOutGroup(groupID, port)
 }
 
 // broadcastFeed mux-guard shared state lives in main (mutex-guarded fields).

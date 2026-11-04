@@ -7,6 +7,7 @@
 package main
 
 import (
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"flag"
@@ -39,6 +40,9 @@ import (
 	"localmesh/internal/domain/discovery"
 	"localmesh/internal/platform/common"
 	udpdiscovery "localmesh/internal/transport/discovery"
+
+	"localmesh/internal/desktopconfig"
+	"localmesh/internal/logging"
 
 	"github.com/egoist/mygo"
 )
@@ -78,6 +82,7 @@ type Console struct {
 	shell        *remoteshell.Runner
 	store        *sqlite.Store
 	hub          *agentHub
+	cfg          desktopconfig.Config
 	screenStream *screenStream
 	inputMu      sync.Mutex
 	inputConns   map[string]*inputConn
@@ -88,7 +93,7 @@ type Console struct {
 }
 
 // NewConsole wires the full manager stack, mirroring the construction the
-// HTTP console performs in apps/teacher.
+// HTTP console previously performed by the legacy web console.
 func NewConsole() (*Console, error) {
 	rt, err := common.RuntimeForCurrentOS()
 	if err != nil {
@@ -180,10 +185,20 @@ func main() {
 		return
 	}
 
+	// 配置中心：data/config.toml（缺失即默认值）
+	cfg, err := desktopconfig.Load(desktopconfig.Path())
+	if err != nil {
+		log.Printf("[Config] load failed, using defaults: %v", err)
+	}
+	if closer := logging.Setup(cfg.Log.Level, cfg.Log.File); closer != nil {
+		defer closer()
+	}
+
 	console, err := NewConsole()
 	if err != nil {
 		log.Fatalf("failed to build console: %v", err)
 	}
+	console.cfg = cfg
 
 	go console.serveHTTP(*flagHTTP)
 	go console.serveDiscovery(*flagDiscovery)
@@ -202,6 +217,7 @@ func main() {
 	mygo.Bind(&RosterService{c: console})
 	mygo.Bind(&GroupService{c: console})
 	mygo.Bind(&SceneService{c: console})
+	mygo.Bind(&ConfigService{c: console})
 
 	mygo.App.OnSecondInstance(func(_ []string, _ string) {
 		console.showMainWindow()
@@ -340,8 +356,16 @@ func chatFilter() interaction.ChatFilter {
 	return interaction.ChatFilter{ClassroomID: defaultClassroomID, UserID: "teacher"}
 }
 
-func writeJSON(w http.ResponseWriter, code int, val any) {
+func writeJSON(w http.ResponseWriter, code int, val any, gzipOK ...bool) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	if len(gzipOK) > 0 && gzipOK[0] {
+		w.Header().Set("Content-Encoding", "gzip")
+		w.WriteHeader(code)
+		gz := gzip.NewWriter(w)
+		defer gz.Close()
+		_ = json.NewEncoder(gz).Encode(val)
+		return
+	}
 	w.WriteHeader(code)
 	_ = json.NewEncoder(w).Encode(val)
 }

@@ -26,6 +26,7 @@ import {
   openLockModal,
   openPowerModal,
   quickUnlock,
+  openSettingsModal,
 } from "./views/modals";
 import {
   openAttendanceModal,
@@ -61,6 +62,7 @@ const commands: (CmdDef | "sep")[] = [
     } },
   { icon: "📣", label: "屏幕广播", run: () => openBroadcastModal() },
   { icon: "👥", label: "分组", run: () => openGroupModal() },
+  { icon: "⚙️", label: "设置", run: () => openSettingsModal() },
   {
     icon: "🎙️",
     label: "伴音同传",

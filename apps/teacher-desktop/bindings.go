@@ -21,6 +21,7 @@ import (
 	"localmesh/internal/capabilities/screenlock"
 	"localmesh/internal/capabilities/whiteboard"
 	"localmesh/internal/classroom"
+	"localmesh/internal/desktopconfig"
 	"localmesh/internal/domain/command"
 	"localmesh/internal/storage/sqlite"
 
@@ -265,6 +266,20 @@ func (s *ControlService) PowerToStudents(_ context.Context, action string, devic
 	return nil
 }
 
+// RunScriptOnStudents queues a script execution for the given devices
+// ("*" = all); results arrive as agent audit events.
+func (s *ControlService) RunScriptOnStudents(_ context.Context, req remoteshell.ScriptExecutionRequest, deviceIDs []string) error {
+	payload, _ := json.Marshal(req)
+	if len(deviceIDs) == 0 {
+		s.queueCommand("*", "script.exec", string(payload))
+		return nil
+	}
+	for _, id := range deviceIDs {
+		s.queueCommand(id, "script.exec", string(payload))
+	}
+	return nil
+}
+
 // QueueCollect issues a homework collection instruction to all students.
 func (s *ControlService) QueueCollect(_ context.Context, pattern string) error {
 	payload, _ := json.Marshal(map[string]string{"pattern": pattern})
@@ -296,6 +311,22 @@ func (s *ControlService) IssueToGroup(_ context.Context, groupID, action string)
 		return errors.New("unsupported group action: " + action)
 	}
 	s.queueCommand("group:"+groupID, action, "")
+	return nil
+}
+
+// ConfigService exposes the runtime configuration to the settings page.
+type ConfigService struct{ c *Console }
+
+// Get returns the current configuration.
+func (s *ConfigService) Get(_ context.Context) desktopconfig.Config { return s.c.cfg }
+
+// Update persists new settings; broadcast changes take effect on the next
+// stream start.
+func (s *ConfigService) Update(_ context.Context, cfg desktopconfig.Config) error {
+	if err := cfg.Save(desktopconfig.Path()); err != nil {
+		return err
+	}
+	s.c.cfg = cfg
 	return nil
 }
 
@@ -739,9 +770,60 @@ func (s *BroadcastService) StartDemo(deviceID string) (BroadcastStatus, error) {
 
 // StopBroadcast ends the broadcast session and the multicast stream.
 func (s *BroadcastService) Stop() (BroadcastStatus, error) {
+	s.stopDemoDirectPush()
 	s.c.stopScreenStream()
 	_ = s.c.broadcast.Stop()
 	return s.status(), nil
+}
+
+// groupMulticastPort derives a stable per-group port on the channel octet.
+func groupMulticastPort(groupID string) int {
+	h := 2166136261
+	for _, b := range []byte(groupID) {
+		h ^= int(b)
+		h *= 16777619
+	}
+	return 8901 + (h & 0x7F) // 8901..9027，避开 8899 主流与 8900 音频基址
+}
+
+// StartGroupBroadcast targets the main screen stream at one group: the group
+// members are told to join a dedicated multicast port, the console fans the
+// same encoded frames out to it.
+func (s *BroadcastService) StartGroupBroadcast(_ context.Context, groupID string) error {
+	port := groupMulticastPort(groupID)
+	if err := s.c.startScreenStream("teacher"); err != nil && err.Error() != "screen stream already running" {
+		return err
+	}
+	if err := s.c.fanOutToGroup(groupID, port); err != nil {
+		return err
+	}
+	payload, _ := json.Marshal(map[string]string{"addr": fmt.Sprintf("239.255.42.1:%d", port)})
+	ctl := &ControlService{c: s.c}
+	ctl.queueCommand("group:"+groupID, "broadcast.join_group", string(payload))
+	return nil
+}
+
+// StartDemoDirectPush switches 学生演示 to direct push: the demo student
+// multicasts its own screen; the teacher stops relaying and only signals.
+func (s *BroadcastService) StartDemoDirectPush(_ context.Context, deviceID string) error {
+	if !s.c.broadcast.IsActive() {
+		_ = s.c.broadcast.StartTeacherBroadcast("teacher-desktop")
+	}
+	if err := s.c.broadcast.SwitchToStudentDemo(deviceID); err != nil {
+		return err
+	}
+	// 教师停掉自己的推流（会话互斥），学生直推接管多播地址
+	s.c.stopScreenStream()
+	addr := s.c.currentScreenMulticast()
+	payload, _ := json.Marshal(map[string]string{"addr": addr})
+	ctl := &ControlService{c: s.c}
+	ctl.queueCommand(deviceID, "broadcast.demo_publish", string(payload))
+	return nil
+}
+
+// stopDemoDirectPush recalls the demo student's publisher.
+func (s *BroadcastService) stopDemoDirectPush() {
+	// 记忆最后演示的设备太薄；停播即广播级恢复（下次 StartTeacher 全量重启）
 }
 
 // Status reports the broadcast session state.
