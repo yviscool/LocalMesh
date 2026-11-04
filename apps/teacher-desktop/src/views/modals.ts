@@ -2,7 +2,7 @@
 
 import { store } from "../state";
 import { clear, el, field, onModalClose, openModal, optionCards, toast } from "../ui";
-import { AuditService, BroadcastService, ClassroomService, ControlService, events } from "../mygo";
+import { AuditService, BroadcastService, ClassroomService, ControlService, GroupService, events } from "../mygo";
 import { errMsg } from "./seating";
 
 /* ---------- 屏幕广播 ---------- */
@@ -457,4 +457,157 @@ export async function openChannelModal() {
       },
     }, "切换频道"),
   );
+}
+
+/* ---------- 文件分发 / 收集 ---------- */
+
+import { FilesService } from "../mygo";
+
+export function openFileDistributeModal() {
+  const { body, foot, close } = openModal("📄", "文件分发");
+  const note = el("div", { class: "note info" }, "ⓘ 文件通过教师端 HTTP 服务下发，学生机下载后保存到桌面「LocalMesh 收到的文件」并弹窗提示。");
+  const allCheck = el("input", { type: "checkbox", checked: true }) as HTMLInputElement;
+  const targetField = field("目标", el("label", { class: "check-row" }, allCheck, "全部在线学生机（取消勾选则下发到选中设备）"));
+  const statusEl = el("div", { class: "note info" });
+
+  body.append(note, targetField, statusEl);
+  foot.append(
+    el("button", {
+      class: "btn primary",
+      onclick: async () => {
+        const targets = allCheck.checked ? [] : [...store.get().selected];
+        if (!allCheck.checked && targets.length === 0) {
+          toast("💡", "请先在画面墙选中目标学生机");
+          return;
+        }
+        try {
+          const name = await FilesService.distribute(targets);
+          if (!name) return; // 用户取消
+          statusEl.textContent = `已下发「${name}」`;
+          store.log("📄", `文件分发：${name}`);
+          toast("📄", `「${name}」分发指令已发出`);
+          close();
+        } catch (err) {
+          toast("⚠️", errMsg(err));
+        }
+      },
+    }, "📂 选择文件并分发"),
+  );
+}
+
+export async function openFileCollectModal() {
+  const { body, foot } = openModal("📥", "文件收集");
+  const patternInput = el("input", { type: "text", value: "*.docx, *.doc, *.zip", placeholder: "通配符模式" }) as HTMLInputElement;
+  const statusEl = el("div", { class: "note info" }, "ⓘ 收集学生机桌面上匹配的文件，打包回传到教师端。");
+  const list = el("div", { class: "kv-list", style: "max-height:260px; overflow-y:auto" });
+
+  const render = (files: { device_id: string; name: string; size_bytes: number; updated_at: string }[]) => {
+    clear(list);
+    if (files.length === 0) {
+      list.append(el("div", { class: "event-empty" }, "尚未收到任何文件"));
+      return;
+    }
+    for (const f of files) {
+      list.append(el("div", { class: "kv" },
+        el("span", { class: "k" }, `${f.device_id} · ${f.name} (${(f.size_bytes / 1024).toFixed(0)} KB)`),
+        el("span", { class: "v" }, new Date(f.updated_at).toLocaleTimeString("zh-CN")),
+      ));
+    }
+  };
+
+  try { render(await FilesService.listCollected()); } catch { /* ignore */ }
+
+  body.append(
+    field("收集模式（文件通配符）", patternInput),
+    statusEl,
+    list,
+  );
+  foot.append(
+    el("button", { class: "btn", onclick: async () => { try { render(await FilesService.listCollected()); } catch { /* ignore */ } } }, "🔄 刷新"),
+    el("button", {
+      class: "btn primary",
+      onclick: async () => {
+        const pattern = patternInput.value.split(",").map((s) => s.trim()).filter(Boolean).join(",");
+        try {
+          await ControlService.queueCollect(pattern);
+          store.log("📥", "文件收集指令已下发");
+          toast("📥", "收集指令已下发学生机");
+          setTimeout(async () => { try { render(await FilesService.listCollected()); } catch { /* ignore */ } }, 6000);
+        } catch (err) {
+          toast("⚠️", errMsg(err));
+        }
+      },
+    }, "📤 发起收集"),
+  );
+}
+
+/* ---------- 分组教学 ---------- */
+
+export async function openGroupModal() {
+  const { body, foot } = openModal("👥", "分组教学", { wide: true });
+  const note = el("div", { class: "note info" }, "ⓘ 组建分组后，锁定/解锁等指令可通过组目标下发，广播与策略随后支持按组隔离。");
+  const nameInput = el("input", { type: "text", placeholder: "分组名称，如：第一组" }) as HTMLInputElement;
+  const listWrap = el("div");
+
+  const deviceSelect = el("select", {}, ...store.get().devices.map((d) => el("option", { value: d.device_id }, d.device_id))) as HTMLSelectElement;
+  const groupSelect = el("select") as HTMLSelectElement;
+
+  async function refresh() {
+    const groups = await GroupService.listGroups();
+    clear(listWrap);
+    if (groups.length === 0) {
+      listWrap.append(el("div", { class: "event-empty" }, "还没有分组，先创建一个"));
+    }
+    clear(groupSelect);
+    for (const g of groups) {
+      groupSelect.append(el("option", { value: g.group_id }, g.name));
+      const wrap = el("div", { class: "stat-card", style: "margin-bottom:9px" },
+        el("div", { style: "display:flex; align-items:center; gap:8px; margin-bottom:6px" },
+          el("b", { style: "flex:1" }, g.name),
+          el("button", { class: "btn-sm danger", onclick: async () => {
+              await GroupService.deleteGroup(g.group_id);
+              await refresh();
+            } }, "删除"),
+        ),
+        el("div", { style: "font-size:11.5px; color:var(--muted)" },
+          g.members.length ? g.members.join("、") : "（空组）"),
+      );
+      listWrap.append(wrap);
+    }
+  }
+
+  foot.append(
+    el("button", { class: "btn", onclick: async () => {
+        if (!deviceSelect.value) { toast("💡", "没有在线学生机"); return; }
+        try {
+          await GroupService.addMember(groupSelect.value, deviceSelect.value);
+          await refresh();
+          toast("👥", `${deviceSelect.value} 已加入分组`);
+        } catch (err) { toast("⚠️", errMsg(err)); }
+      } }, "➕ 成员加入分组"),
+    el("button", {
+      class: "btn danger",
+      onclick: async () => {
+        try {
+          await ControlService.issueToGroup(groupSelect.value, "screen.lock");
+          toast("🔒", "锁定指令已下发该分组");
+        } catch (err) { toast("⚠️", errMsg(err)); }
+      },
+    }, "🔒 锁定该组"),
+    el("button", { class: "btn primary", onclick: async () => {
+        if (!nameInput.value.trim()) { toast("💡", "请输入分组名称"); return; }
+        try {
+          await GroupService.upsertGroup("group-" + Date.now(), nameInput.value.trim());
+          nameInput.value = "";
+          await refresh();
+        } catch (err) { toast("⚠️", errMsg(err)); }
+      } }, "创建分组"),
+  );
+
+  body.append(
+    note,
+    el("div", { style: "display:flex; gap:10px; margin-bottom:12px" }, field("新分组名称", nameInput), field("在线设备", deviceSelect), field("目标分组", groupSelect)),
+    listWrap,
+  );
+  await refresh();
 }

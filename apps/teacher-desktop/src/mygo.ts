@@ -96,6 +96,15 @@ export interface ChatMessage {
   is_whisper: boolean;
 }
 
+/** ClassSceneOptions selects which steps the class scene includes. */
+export interface ClassSceneOptions {
+  lock: boolean;
+  net_block: boolean;
+  broadcast: boolean;
+  audio: boolean;
+  offline_guard: boolean;
+}
+
 /**
  * ClassroomDelta is the incremental classroom update pushed to the page.
  * The first emission carries the full snapshot (Full=true); afterwards only
@@ -111,6 +120,14 @@ export interface ClassroomDelta {
   added?: DeviceInfo[];
   removed?: string[];
   updates?: ThumbnailInfo[];
+}
+
+/** CollectedFile is one homework archive uploaded by a student. */
+export interface CollectedFile {
+  device_id: string;
+  name: string;
+  size_bytes: number;
+  updated_at: string;
 }
 
 export interface Color {
@@ -148,6 +165,13 @@ export interface GPUInfo {
   vram_bytes: number;
 }
 
+/** GroupView is a group with its members for the console UI. */
+export interface GroupView {
+  group_id: string;
+  name: string;
+  members: string[];
+}
+
 export interface HandRecord {
   id: string;
   classroom_id: string;
@@ -169,6 +193,17 @@ export interface HardwareTelemetry {
   disks: DiskPartition[];
   gpu: GPUInfo;
   network: NetAdapter[];
+}
+
+/** inputEventPayload mirrors screen.InputEvent as sent from the page. */
+export interface InputEventPayload {
+  type: number;
+  x: number;
+  y: number;
+  button: number;
+  wheel_delta: number;
+  key_code: number;
+  normalized: boolean;
 }
 
 export interface InventorySnapshot {
@@ -392,6 +427,13 @@ export interface Stroke {
   created_at?: string;
 }
 
+/** StudentView is a roster entry for the console UI. */
+export interface StudentView {
+  student_id: string;
+  name: string;
+  device_id: string;
+}
+
 export interface SystemTelemetry {
   os: OSInfo;
   hostname: string;
@@ -471,6 +513,13 @@ export const ControlService = {
   firewallPolicy(): Promise<NetworkPolicy> {
     return call("ControlService.FirewallPolicy");
   },
+  /**
+   * IssueToGroup queues a generic control action to every device in a group.
+   * Supported actions: screen.lock, screen.unlock, remote_control.start/stop.
+   */
+  issueToGroup(groupID: string, action: string): Promise<void> {
+    return call("ControlService.IssueToGroup", groupID, action);
+  },
   /** LockScreen blanks student screens with a banner (full lock or input-only). */
   lockScreen(title: string, message: string, inputOnly: boolean): Promise<void> {
     return call("ControlService.LockScreen", title, message, inputOnly);
@@ -491,9 +540,24 @@ export const ControlService = {
   powerToStudents(action: string, deviceIDs: string[]): Promise<void> {
     return call("ControlService.PowerToStudents", action, deviceIDs);
   },
+  /** QueueCollect issues a homework collection instruction to all students. */
+  queueCollect(pattern: string): Promise<void> {
+    return call("ControlService.QueueCollect", pattern);
+  },
+  /** SendInputEvent forwards one input event to the agent's injector. */
+  sendInputEvent(deviceID: string, payload: InputEventPayload): Promise<void> {
+    return call("ControlService.SendInputEvent", deviceID, payload);
+  },
   /** SetOfflinePolicy configures the student offline behavior. */
   setOfflinePolicy(pol: OfflinePolicy): Promise<void> {
     return call("ControlService.SetOfflinePolicy", pol);
+  },
+  /**
+   * ToggleRemoteControl opens or closes the remote-control gate on a student
+   * machine. Returns the resulting state.
+   */
+  toggleRemoteControl(deviceID: string, enable: boolean): Promise<boolean> {
+    return call("ControlService.ToggleRemoteControl", deviceID, enable);
   },
   /** UnlockScreen releases the current lock. */
   unlockScreen(): Promise<void> {
@@ -511,7 +575,7 @@ export const InteractionService = {
   ackHand(deviceID: string): Promise<void> {
     return call("InteractionService.AckHand", deviceID);
   },
-  /** AssignSeat assigns a device to a seat, freeing its previous seat. */
+  /** AssignSeat assigns a device to a seat (persisted), freeing its previous seat. */
   assignSeat(row: number, col: number, deviceID: string, studentName: string): Promise<void> {
     return call("InteractionService.AssignSeat", row, col, deviceID, studentName);
   },
@@ -535,7 +599,7 @@ export const InteractionService = {
   sendChat(message: string, target: string): Promise<ChatMessage> {
     return call("InteractionService.SendChat", message, target);
   },
-  /** UnassignSeat frees one seat. */
+  /** UnassignSeat frees one seat (persisted). */
   unassignSeat(row: number, col: number): Promise<void> {
     return call("InteractionService.UnassignSeat", row, col);
   },
@@ -615,11 +679,17 @@ export const BroadcastService = {
   startAudio(): Promise<AudioStatus> {
     return call("BroadcastService.StartAudio");
   },
-  /** StartDemo switches the broadcast to a student's screen. */
+  /**
+   * StartDemo switches the broadcast to a student's screen: the console
+   * relays the student's MJPEG endpoint onto the classroom multicast group.
+   */
   startDemo(deviceID: string): Promise<BroadcastStatus> {
     return call("BroadcastService.StartDemo", deviceID);
   },
-  /** StartTeacher begins broadcasting the teacher screen. */
+  /**
+   * StartTeacher begins broadcasting the teacher screen: session state plus
+   * the real multicast capture stream.
+   */
   startTeacher(): Promise<BroadcastStatus> {
     return call("BroadcastService.StartTeacher");
   },
@@ -627,7 +697,7 @@ export const BroadcastService = {
   status(): Promise<BroadcastStatus> {
     return call("BroadcastService.Status");
   },
-  /** StopBroadcast ends the broadcast session. */
+  /** StopBroadcast ends the broadcast session and the multicast stream. */
   stop(): Promise<BroadcastStatus> {
     return call("BroadcastService.Stop");
   },
@@ -699,6 +769,76 @@ export const AuditService = {
   /** Recent returns the newest agent audit records, optionally per device. */
   recent(limit: number, deviceID: string): Promise<PolicyAuditView[]> {
     return call("AuditService.Recent", limit, deviceID);
+  },
+} as const;
+
+/** FilesService implements file distribution and collection. */
+export const FilesService = {
+  /**
+   * Distribute opens a file picker, stages the file for download and queues a
+   * distribute command to the selected devices ("*" = all).
+   */
+  distribute(deviceIDs: string[]): Promise<string> {
+    return call("FilesService.Distribute", deviceIDs);
+  },
+  /** ListCollected returns the homework archives received from students. */
+  listCollected(): Promise<CollectedFile[]> {
+    return call("FilesService.ListCollected");
+  },
+} as const;
+
+/** RosterService manages the student roster (花名册). */
+export const RosterService = {
+  /** ListStudents returns the roster. */
+  listStudents(): Promise<StudentView[]> {
+    return call("RosterService.ListStudents");
+  },
+  /** RemoveStudent deletes a roster entry. */
+  removeStudent(studentID: string): Promise<void> {
+    return call("RosterService.RemoveStudent", studentID);
+  },
+  /** UpsertStudent adds or updates a roster entry. */
+  upsertStudent(studentID: string, name: string, deviceID: string): Promise<void> {
+    return call("RosterService.UpsertStudent", studentID, name, deviceID);
+  },
+} as const;
+
+/** GroupService manages device groups (分组教学). */
+export const GroupService = {
+  /** AddMember assigns a device to a group. */
+  addMember(groupID: string, deviceID: string): Promise<void> {
+    return call("GroupService.AddMember", groupID, deviceID);
+  },
+  /** DeleteGroup removes a group. */
+  deleteGroup(groupID: string): Promise<void> {
+    return call("GroupService.DeleteGroup", groupID);
+  },
+  /** ListGroups returns all groups with members. */
+  listGroups(): Promise<GroupView[]> {
+    return call("GroupService.ListGroups");
+  },
+  /** RemoveMember unassigns a device from a group. */
+  removeMember(groupID: string, deviceID: string): Promise<void> {
+    return call("GroupService.RemoveMember", groupID, deviceID);
+  },
+  /** UpsertGroup adds or renames a group. */
+  upsertGroup(groupID: string, name: string): Promise<void> {
+    return call("GroupService.UpsertGroup", groupID, name);
+  },
+} as const;
+
+/** SceneService orchestrates one-click class start/stop (上课/下课). */
+export const SceneService = {
+  /**
+   * StartClass runs the 上课 scene: optional lock, network policy, broadcast
+   * and audio, all pushed to students where applicable.
+   */
+  startClass(opts: ClassSceneOptions): Promise<void> {
+    return call("SceneService.StartClass", opts);
+  },
+  /** StopClass runs the 下课 scene: unlock, network reset, broadcast/audio off. */
+  stopClass(): Promise<void> {
+    return call("SceneService.StopClass");
   },
 } as const;
 

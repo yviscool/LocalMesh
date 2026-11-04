@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -21,6 +22,7 @@ import (
 	"localmesh/internal/capabilities/whiteboard"
 	"localmesh/internal/classroom"
 	"localmesh/internal/domain/command"
+	"localmesh/internal/storage/sqlite"
 
 	"github.com/egoist/mygo"
 )
@@ -263,6 +265,109 @@ func (s *ControlService) PowerToStudents(_ context.Context, action string, devic
 	return nil
 }
 
+// QueueCollect issues a homework collection instruction to all students.
+func (s *ControlService) QueueCollect(_ context.Context, pattern string) error {
+	payload, _ := json.Marshal(map[string]string{"pattern": pattern})
+	s.queueCommand("*", "file.collect", string(payload))
+	return nil
+}
+
+// ToggleRemoteControl opens or closes the remote-control gate on a student
+// machine. Returns the resulting state.
+func (s *ControlService) ToggleRemoteControl(ctx context.Context, deviceID string, enable bool) (bool, error) {
+	if enable {
+		if err := s.dialInput(ctx, deviceID); err != nil {
+			return false, err
+		}
+		s.queueCommand(deviceID, "remote_control.start", "")
+	} else {
+		s.queueCommand(deviceID, "remote_control.stop", "")
+		s.closeInput(deviceID)
+	}
+	return enable, nil
+}
+
+// IssueToGroup queues a generic control action to every device in a group.
+// Supported actions: screen.lock, screen.unlock, remote_control.start/stop.
+func (s *ControlService) IssueToGroup(_ context.Context, groupID, action string) error {
+	switch action {
+	case "screen.lock", "screen.unlock", "remote_control.start", "remote_control.stop":
+	default:
+		return errors.New("unsupported group action: " + action)
+	}
+	s.queueCommand("group:"+groupID, action, "")
+	return nil
+}
+
+// SceneService orchestrates one-click class start/stop (上课/下课).
+type SceneService struct{ c *Console }
+
+// ClassSceneOptions selects which steps the class scene includes.
+type ClassSceneOptions struct {
+	Lock         bool `json:"lock"`
+	NetBlock     bool `json:"net_block"`
+	Broadcast    bool `json:"broadcast"`
+	Audio        bool `json:"audio"`
+	OfflineGuard bool `json:"offline_guard"`
+}
+
+// StartClass runs the 上课 scene: optional lock, network policy, broadcast
+// and audio, all pushed to students where applicable.
+func (s *SceneService) StartClass(_ context.Context, opts ClassSceneOptions) error {
+	if opts.Lock {
+		req := screenlock.LockRequest{Title: "上课模式", Message: "上课期间已锁定，请专心听讲", ShowBanner: true}
+		s.c.hub.setLock(&req)
+		payload, _ := json.Marshal(req)
+		(&ControlService{c: s.c}).queueCommand("*", "screen.lock", string(payload))
+	}
+	if opts.NetBlock {
+		if err := (&ControlService{c: s.c}).ApplyFirewallToStudents(netfilter.NetworkPolicy{Mode: netfilter.ModeBlockInternet}); err != nil {
+			return err
+		}
+	}
+	if opts.Broadcast {
+		bs := &BroadcastService{c: s.c}
+		if _, err := bs.StartTeacher(); err != nil {
+			return err
+		}
+	}
+	if opts.Audio {
+		as := &BroadcastService{c: s.c}
+		if _, err := as.StartAudio(); err != nil {
+			return err
+		}
+	}
+	if opts.OfflineGuard {
+		if err := (&ControlService{c: s.c}).SetOfflinePolicy(OfflinePolicy{Enabled: true, LeaseSeconds: 10}); err != nil {
+			return err
+		}
+	}
+
+	s.c.mu.Lock()
+	s.c.classActive = true
+	s.c.mu.Unlock()
+	return nil
+}
+
+// StopClass runs the 下课 scene: unlock, network reset, broadcast/audio off.
+func (s *SceneService) StopClass(_ context.Context) error {
+	s.c.hub.setLock(nil)
+	s.c.stopScreenStream()
+	_ = s.c.broadcast.Stop()
+	as := &BroadcastService{c: s.c}
+	as.StopAudio()
+	if err := (&ControlService{c: s.c}).ApplyFirewallToStudents(netfilter.NetworkPolicy{Mode: netfilter.ModeAllowAll}); err != nil {
+		return err
+	}
+	s.c.hub.setLock(nil)
+	s.c.hub.setOffline(&OfflinePolicy{Enabled: false})
+
+	s.c.mu.Lock()
+	s.c.classActive = false
+	s.c.mu.Unlock()
+	return nil
+}
+
 // PolicyAuditView is one agent audit record for the console UI.
 type PolicyAuditView struct {
 	EventID    string `json:"event_id"`
@@ -346,14 +451,23 @@ func (s *InteractionService) ClearHand(deviceID string) error {
 // SeatingGrid returns the full rows x cols seating matrix.
 func (s *InteractionService) SeatingGrid() [][]*interaction.Seat { return s.c.seating.ToGrid() }
 
-// AssignSeat assigns a device to a seat, freeing its previous seat.
+// AssignSeat assigns a device to a seat (persisted), freeing its previous seat.
 func (s *InteractionService) AssignSeat(_ context.Context, row, col int, deviceID, studentName string) error {
-	return s.c.seating.AssignSeat(row, col, deviceID, studentName)
+	if err := s.c.seating.AssignSeat(row, col, deviceID, studentName); err != nil {
+		return err
+	}
+	return s.c.store.UpsertSeat(context.Background(), sqlite.SeatRecord{
+		ClassroomID: defaultClassroomID, Row: row, Col: col,
+		StudentName: studentName, DeviceID: deviceID, UpdatedAt: time.Now(),
+	})
 }
 
-// UnassignSeat frees one seat.
+// UnassignSeat frees one seat (persisted).
 func (s *InteractionService) UnassignSeat(_ context.Context, row, col int) error {
-	return s.c.seating.UnassignSeat(row, col)
+	if err := s.c.seating.UnassignSeat(row, col); err != nil {
+		return err
+	}
+	return s.c.store.ClearSeat(context.Background(), defaultClassroomID, row, col)
 }
 
 // QuizStatus describes the current quiz session for the frontend.
@@ -592,7 +706,8 @@ func (s *BroadcastService) status() BroadcastStatus {
 	}
 }
 
-// StartTeacher begins broadcasting the teacher screen.
+// StartTeacher begins broadcasting the teacher screen: session state plus
+// the real multicast capture stream.
 func (s *BroadcastService) StartTeacher() (BroadcastStatus, error) {
 	if !s.c.broadcast.IsActive() {
 		if err := s.c.broadcast.StartTeacherBroadcast("teacher-desktop"); err != nil {
@@ -601,10 +716,14 @@ func (s *BroadcastService) StartTeacher() (BroadcastStatus, error) {
 	} else {
 		_ = s.c.broadcast.SwitchToTeacher()
 	}
+	if err := s.c.startScreenStream("teacher"); err != nil && err.Error() != "screen stream already running" {
+		return s.status(), err
+	}
 	return s.status(), nil
 }
 
-// StartDemo switches the broadcast to a student's screen.
+// StartDemo switches the broadcast to a student's screen: the console
+// relays the student's MJPEG endpoint onto the classroom multicast group.
 func (s *BroadcastService) StartDemo(deviceID string) (BroadcastStatus, error) {
 	if !s.c.broadcast.IsActive() {
 		_ = s.c.broadcast.StartTeacherBroadcast("teacher-desktop")
@@ -612,11 +731,15 @@ func (s *BroadcastService) StartDemo(deviceID string) (BroadcastStatus, error) {
 	if err := s.c.broadcast.SwitchToStudentDemo(deviceID); err != nil {
 		return s.status(), err
 	}
+	if err := s.c.startScreenStream(deviceID); err != nil && err.Error() != "screen stream already running" {
+		return s.status(), err
+	}
 	return s.status(), nil
 }
 
-// StopBroadcast ends the broadcast session.
+// StopBroadcast ends the broadcast session and the multicast stream.
 func (s *BroadcastService) Stop() (BroadcastStatus, error) {
+	s.c.stopScreenStream()
 	_ = s.c.broadcast.Stop()
 	return s.status(), nil
 }

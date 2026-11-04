@@ -36,7 +36,7 @@ func (c *Console) handleAgentPoll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	state, commands := c.hub.poll(payload.DeviceID, payload.Acked)
+	state, commands := c.poll(payload.DeviceID, payload.Acked)
 	c.recordEvents(payload.DeviceID, state.ChannelID, payload.Events)
 
 	writeJSON(w, http.StatusOK, map[string]any{

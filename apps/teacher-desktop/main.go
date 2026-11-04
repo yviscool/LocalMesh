@@ -78,6 +78,10 @@ type Console struct {
 	shell        *remoteshell.Runner
 	store        *sqlite.Store
 	hub          *agentHub
+	screenStream *screenStream
+	inputMu      sync.Mutex
+	inputConns   map[string]*inputConn
+	classActive  bool
 
 	win  *mygo.Window
 	tray *mygo.Tray
@@ -151,6 +155,16 @@ func NewConsole() (*Console, error) {
 	// 学生机跟随教师频道；离线守护默认开启（宽限 10 秒）。
 	console.hub.setChannel(classroom.DefaultChannelID)
 	console.hub.setOffline(&OfflinePolicy{Enabled: true, LeaseSeconds: 10})
+
+	// 回载持久化座位表
+	seats, err := store.ListSeats(storeCtx, defaultClassroomID)
+	if err == nil {
+		for _, seat := range seats {
+			if seat.DeviceID != "" {
+				_ = seating.AssignSeat(seat.Row, seat.Col, seat.DeviceID, seat.StudentName)
+			}
+		}
+	}
 	return console, nil
 }
 
@@ -184,6 +198,10 @@ func main() {
 	mygo.Bind(&MonitorService{c: console})
 	mygo.Bind(&WindowService{c: console})
 	mygo.Bind(&AuditService{c: console})
+	mygo.Bind(&FilesService{c: console})
+	mygo.Bind(&RosterService{c: console})
+	mygo.Bind(&GroupService{c: console})
+	mygo.Bind(&SceneService{c: console})
 
 	mygo.App.OnSecondInstance(func(_ []string, _ string) {
 		console.showMainWindow()
@@ -228,6 +246,8 @@ func (c *Console) serveHTTP(addr string) {
 
 	// Student-side endpoints so agents (or curl simulations) can interact.
 	mux.HandleFunc("POST /api/v1/agent/poll", c.handleAgentPoll)
+	mux.HandleFunc("GET /files/", c.handleServeFile)
+	mux.HandleFunc("POST /api/v1/files/collect", c.handleCollectUpload)
 	mux.HandleFunc("POST /api/v1/chat/messages", c.handleStudentChat)
 	mux.HandleFunc("POST /api/v1/raisehand", c.handleRaiseHand)
 	mux.HandleFunc("POST /api/v1/buzzer/press", c.handleBuzzerPress)

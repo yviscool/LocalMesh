@@ -64,3 +64,73 @@ async function boot() {
 }
 
 boot();
+
+/* ---------- 远程接管模式 ---------- */
+
+import { ControlService } from "./mygo";
+
+let controlActive = false;
+
+const controlBtn = document.getElementById("m-control") as HTMLButtonElement | null;
+const stage = document.querySelector<HTMLElement>(".monitor-stage") ?? document.body;
+
+function sendInput(payload: Partial<import("./mygo").InputEventPayload> & { type: number }) {
+  if (!controlActive) return;
+  const full = {
+    type: payload.type,
+    x: payload.x ?? 0,
+    y: payload.y ?? 0,
+    button: payload.button ?? 0,
+    wheel_delta: payload.wheel_delta ?? 0,
+    key_code: payload.key_code ?? 0,
+    normalized: payload.normalized ?? true,
+  };
+  void ControlService.sendInputEvent(deviceID ?? "", full).catch(() => {});
+}
+
+if (controlBtn) {
+  controlBtn.addEventListener("click", async () => {
+    if (!deviceID) return;
+    controlActive = !controlActive;
+    controlBtn.classList.toggle("active", controlActive);
+    controlBtn.textContent = controlActive ? "🖱 接管中" : "🖱 接管";
+    stage.style.cursor = controlActive ? "none" : "crosshair";
+    try {
+      await ControlService.toggleRemoteControl(deviceID, controlActive);
+      if (!controlActive) {
+        // 释放学生端残留的按键状态
+        void ControlService.sendInputEvent(deviceID, { type: 6, x: 0, y: 0, button: 0, wheel_delta: 0, key_code: 0, normalized: true });
+      }
+    } catch { /* gate command failed */ }
+  });
+}
+
+// 指针事件 → 归一化坐标转发
+stage.addEventListener("pointermove", (e) => {
+  if (!controlActive) return;
+  const r = stage.getBoundingClientRect();
+  sendInput({ type: 1, x: (e.clientX - r.left) / r.width, y: (e.clientY - r.top) / r.height, normalized: true });
+});
+stage.addEventListener("pointerdown", (e) => {
+  if (!controlActive) return;
+  const r = stage.getBoundingClientRect();
+  sendInput({ type: 2, x: (e.clientX - r.left) / r.width, y: (e.clientY - r.top) / r.height, button: e.button === 2 ? 2 : 1, normalized: true });
+});
+stage.addEventListener("pointerup", (e) => {
+  if (!controlActive) return;
+  const r = stage.getBoundingClientRect();
+  sendInput({ type: 3, x: (e.clientX - r.left) / r.width, y: (e.clientY - r.top) / r.height, button: e.button === 2 ? 2 : 1, normalized: true });
+});
+stage.addEventListener("wheel", (e) => {
+  if (!controlActive) return;
+  sendInput({ type: 4, wheel_delta: Math.round(e.deltaY) });
+}, { passive: true });
+stage.addEventListener("keydown", (e) => {
+  if (!controlActive) return;
+  e.preventDefault();
+  sendInput({ type: 5, key_code: e.keyCode });
+});
+stage.addEventListener("keyup", (e) => {
+  if (!controlActive) return;
+  sendInput({ type: 6, key_code: e.keyCode });
+});

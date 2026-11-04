@@ -8,6 +8,7 @@ import {
   ControlService,
   InteractionService,
   MonitorService,
+  SceneService,
   TeachingService,
   events,
 } from "./mygo";
@@ -17,7 +18,10 @@ import { refreshChatTargets, renderActivity, renderChat, renderHands, sendChat }
 import { renderStatusbar, startClock } from "./views/statusbar";
 import {
   openBroadcastModal,
+  openGroupModal,
   openChannelModal,
+  openFileCollectModal,
+  openFileDistributeModal,
   openFirewallModal,
   openLockModal,
   openPowerModal,
@@ -41,7 +45,22 @@ const nonNull = <T>(v: T | null | undefined): v is T => v != null;
 type CmdDef = { icon: string; label: string; run: () => void; toggle?: () => boolean };
 
 const commands: (CmdDef | "sep")[] = [
+  { icon: "▶", label: "上课", run: async () => {
+      try {
+        await SceneService.startClass({ lock: false, net_block: false, broadcast: true, audio: true, offline_guard: true });
+        store.log("▶", "上课场景已启动（广播+伴音+离线守护）");
+        toast("▶", "上课！广播已开启");
+      } catch (err) { toast("⚠️", String(err)); }
+    } },
+  { icon: "⏹", label: "下课", run: async () => {
+      try {
+        await SceneService.stopClass();
+        store.log("⏹", "下课场景已还原");
+        toast("⏹", "下课，全部还原");
+      } catch (err) { toast("⚠️", String(err)); }
+    } },
   { icon: "📣", label: "屏幕广播", run: () => openBroadcastModal() },
+  { icon: "👥", label: "分组", run: () => openGroupModal() },
   {
     icon: "🎙️",
     label: "伴音同传",
@@ -66,6 +85,8 @@ const commands: (CmdDef | "sep")[] = [
   { icon: "⏱️", label: "抢答竞赛", run: () => openBuzzerModal() },
   { icon: "🙋", label: "点名考勤", run: () => openAttendanceModal() },
   "sep",
+  { icon: "📄", label: "文件分发", run: () => openFileDistributeModal() },
+  { icon: "📥", label: "文件收集", run: () => openFileCollectModal() },
   { icon: "💻", label: "脚本终端", run: () => openScriptModal() },
   { icon: "📋", label: "资产盘点", run: () => openInventoryModal() },
   { icon: "🛡️", label: "考试模式", run: () => openFirewallModal() },

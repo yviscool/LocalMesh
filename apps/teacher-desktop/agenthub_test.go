@@ -29,10 +29,10 @@ func testStore(t *testing.T) *sqlite.Store {
 // TestAgentHubCommandFlow verifies: issue broadcast → device A receives it,
 // acks on next poll → A no longer receives it, device B still does.
 func TestAgentHubCommandFlow(t *testing.T) {
-	hub := newAgentHub()
-	hub.issue("*", "power.lock", "{}")
+	console := &Console{store: testStore(t), hub: newAgentHub()}
+	console.hub.issue("*", "power.lock", "{}")
 
-	state, cmdsA := hub.poll("DEVICE-A", nil)
+	state, cmdsA := console.poll("DEVICE-A", nil)
 	if len(cmdsA) != 1 || cmdsA[0].Action != "power.lock" {
 		t.Fatalf("expected 1 pending command for A, got %d", len(cmdsA))
 	}
@@ -43,23 +43,23 @@ func TestAgentHubCommandFlow(t *testing.T) {
 	}
 
 	// A acks; B has not polled yet.
-	_, cmdsA2 := hub.poll("DEVICE-A", []string{cmdsA[0].ID})
+	_, cmdsA2 := console.poll("DEVICE-A", []string{cmdsA[0].ID})
 	if len(cmdsA2) != 0 {
 		t.Fatalf("expected acked command to disappear for A, got %d", len(cmdsA2))
 	}
-	_, cmdsB := hub.poll("DEVICE-B", nil)
+	_, cmdsB := console.poll("DEVICE-B", nil)
 	if len(cmdsB) != 1 {
 		t.Fatalf("expected broadcast still pending for B, got %d", len(cmdsB))
 	}
 
 	// Targeted command reaches only its target (B acks the broadcast first).
-	_, _ = hub.poll("DEVICE-B", []string{cmdsB[0].ID})
-	hub.issue("DEVICE-B", "screen.lock", "{}")
-	_, cmdsA3 := hub.poll("DEVICE-A", nil)
+	_, _ = console.poll("DEVICE-B", []string{cmdsB[0].ID})
+	console.hub.issue("DEVICE-B", "screen.lock", "{}")
+	_, cmdsA3 := console.poll("DEVICE-A", nil)
 	if len(cmdsA3) != 0 {
 		t.Fatalf("targeted command leaked to A: %d", len(cmdsA3))
 	}
-	_, cmdsB2 := hub.poll("DEVICE-B", nil)
+	_, cmdsB2 := console.poll("DEVICE-B", nil)
 	if len(cmdsB2) != 1 || cmdsB2[0].Action != "screen.lock" {
 		t.Fatalf("expected targeted command for B, got %+v", cmdsB2)
 	}
@@ -67,7 +67,8 @@ func TestAgentHubCommandFlow(t *testing.T) {
 
 // TestAgentHubStateUpdate verifies desired-state sections update idempotently.
 func TestAgentHubStateUpdate(t *testing.T) {
-	hub := newAgentHub()
+	console := &Console{store: testStore(t), hub: newAgentHub()}
+	hub := console.hub
 
 	hub.setLock(nil)
 	snap := hub.snapshot()

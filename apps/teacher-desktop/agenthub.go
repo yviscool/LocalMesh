@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -133,8 +134,10 @@ func (h *agentHub) issue(target, action, payload string) AgentCommand {
 }
 
 // poll returns the desired state plus commands still pending for the device,
-// recording its acknowledgements and dropping expired entries.
-func (h *agentHub) poll(deviceID string, acked []string) (AgentDesiredState, []AgentCommand) {
+// recording its acknowledgements and dropping expired entries. Group targets
+// ("group:<id>") expand to every member device.
+func (c *Console) poll(deviceID string, acked []string) (AgentDesiredState, []AgentCommand) {
+	h := c.hub
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -153,6 +156,14 @@ func (h *agentHub) poll(deviceID string, acked []string) (AgentDesiredState, []A
 			continue // expired
 		}
 		reaches := cmd.Target == "*" || cmd.Target == deviceID
+		if !reaches && strings.HasPrefix(cmd.Target, "group:") {
+			for _, member := range c.GroupDevices(strings.TrimPrefix(cmd.Target, "group:")) {
+				if member == deviceID {
+					reaches = true
+					break
+				}
+			}
+		}
 		alreadyAcked := h.acked[cmd.ID][deviceID]
 		if reaches && !alreadyAcked {
 			pending = append(pending, cmd)
