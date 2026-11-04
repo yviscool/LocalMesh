@@ -27,3 +27,6 @@ Thumbs.db
 # Runtime databases
 /data/
 apps/*/data/
+
+# stray build artifacts at repo root
+/*.exe
