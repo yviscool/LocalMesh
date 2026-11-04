@@ -55,6 +55,7 @@ func (s *Store) Migrate(ctx context.Context) error {
 		{version: 2, name: "migrations/002_runtime_state.sql"},
 		{version: 3, name: "migrations/003_multiplatform_defaults.sql"},
 		{version: 4, name: "migrations/004_agent_audit.sql"},
+		{version: 5, name: "migrations/005_roster_groups.sql"},
 	}
 	for _, migration := range migrations {
 		version, name := migration.version, migration.name
@@ -242,6 +243,179 @@ func (s *Store) FindMember(ctx context.Context, classroomID, memberID string) (a
 		value.RevokedAt = &parsed
 	}
 	return value, nil
+}
+
+
+// Student is one roster entry.
+type Student struct {
+	StudentID string
+	Name      string
+	DeviceID  string
+	UpdatedAt time.Time
+}
+
+// UpsertStudent adds or updates a roster entry.
+func (s *Store) UpsertStudent(ctx context.Context, student Student) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO students(student_id, name, device_id, updated_at) VALUES(?, ?, ?, ?)
+		ON CONFLICT(student_id) DO UPDATE SET name=excluded.name, device_id=excluded.device_id, updated_at=excluded.updated_at`,
+		student.StudentID, student.Name, student.DeviceID, student.UpdatedAt.UTC().Format(time.RFC3339Nano))
+	return err
+}
+
+// RemoveStudent deletes a roster entry.
+func (s *Store) RemoveStudent(ctx context.Context, studentID string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM students WHERE student_id = ?`, studentID)
+	return err
+}
+
+// ListStudents returns all roster entries ordered by name.
+func (s *Store) ListStudents(ctx context.Context) ([]Student, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT student_id, name, COALESCE(device_id, ''), updated_at FROM students ORDER BY name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Student{}
+	for rows.Next() {
+		var st Student
+		var updated string
+		if err := rows.Scan(&st.StudentID, &st.Name, &st.DeviceID, &updated); err != nil {
+			return nil, err
+		}
+		if st.UpdatedAt, err = parseTimestamp(updated); err != nil {
+			return nil, err
+		}
+		out = append(out, st)
+	}
+	return out, rows.Err()
+}
+
+// Group is one named device group.
+type Group struct {
+	GroupID   string
+	Name      string
+	UpdatedAt time.Time
+}
+
+// GroupMember is one device assignment in a group.
+type GroupMember struct {
+	GroupID  string
+	DeviceID string
+}
+
+// UpsertGroup adds or renames a group.
+func (s *Store) UpsertGroup(ctx context.Context, group Group) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO groups(group_id, name, updated_at) VALUES(?, ?, ?)
+		ON CONFLICT(group_id) DO UPDATE SET name=excluded.name, updated_at=excluded.updated_at`,
+		group.GroupID, group.Name, group.UpdatedAt.UTC().Format(time.RFC3339Nano))
+	return err
+}
+
+// DeleteGroup removes a group and its memberships.
+func (s *Store) DeleteGroup(ctx context.Context, groupID string) error {
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM group_members WHERE group_id = ?`, groupID); err != nil {
+		return err
+	}
+	_, err := s.db.ExecContext(ctx, `DELETE FROM groups WHERE group_id = ?`, groupID)
+	return err
+}
+
+// AddGroupMember assigns a device to a group.
+func (s *Store) AddGroupMember(ctx context.Context, groupID, deviceID string) error {
+	_, err := s.db.ExecContext(ctx, `INSERT OR IGNORE INTO group_members(group_id, device_id) VALUES(?, ?)`, groupID, deviceID)
+	return err
+}
+
+// RemoveGroupMember unassigns a device from a group.
+func (s *Store) RemoveGroupMember(ctx context.Context, groupID, deviceID string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM group_members WHERE group_id = ? AND device_id = ?`, groupID, deviceID)
+	return err
+}
+
+// ListGroups returns all groups with their member device ids.
+func (s *Store) ListGroups(ctx context.Context) ([]Group, map[string][]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT group_id, name, updated_at FROM groups ORDER BY name`)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+	groups := []Group{}
+	for rows.Next() {
+		var g Group
+		var updated string
+		if err := rows.Scan(&g.GroupID, &g.Name, &updated); err != nil {
+			return nil, nil, err
+		}
+		if g.UpdatedAt, err = parseTimestamp(updated); err != nil {
+			return nil, nil, err
+		}
+		groups = append(groups, g)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+
+	members := map[string][]string{}
+	mrows, err := s.db.QueryContext(ctx, `SELECT group_id, device_id FROM group_members`)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer mrows.Close()
+	for mrows.Next() {
+		var m GroupMember
+		if err := mrows.Scan(&m.GroupID, &m.DeviceID); err != nil {
+			return nil, nil, err
+		}
+		members[m.GroupID] = append(members[m.GroupID], m.DeviceID)
+	}
+	return groups, members, mrows.Err()
+}
+
+// SeatRecord is one persisted seat assignment.
+type SeatRecord struct {
+	ClassroomID string
+	Row         int
+	Col         int
+	StudentID   string
+	StudentName string
+	DeviceID    string
+	UpdatedAt   time.Time
+}
+
+// UpsertSeat persists one seat assignment.
+func (s *Store) UpsertSeat(ctx context.Context, seat SeatRecord) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO seating(classroom_id, row, col, student_id, student_name, device_id, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(classroom_id, row, col) DO UPDATE SET student_id=excluded.student_id, student_name=excluded.student_name, device_id=excluded.device_id, updated_at=excluded.updated_at`,
+		seat.ClassroomID, seat.Row, seat.Col, seat.StudentID, seat.StudentName, seat.DeviceID, seat.UpdatedAt.UTC().Format(time.RFC3339Nano))
+	return err
+}
+
+// ClearSeat removes a persisted seat assignment.
+func (s *Store) ClearSeat(ctx context.Context, classroomID string, row, col int) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM seating WHERE classroom_id = ? AND row = ? AND col = ?`, classroomID, row, col)
+	return err
+}
+
+// ListSeats returns all persisted seat assignments for a classroom.
+func (s *Store) ListSeats(ctx context.Context, classroomID string) ([]SeatRecord, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT classroom_id, row, col, COALESCE(student_id, ''), COALESCE(student_name, ''), COALESCE(device_id, ''), updated_at FROM seating WHERE classroom_id = ?`, classroomID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []SeatRecord{}
+	for rows.Next() {
+		var seat SeatRecord
+		var updated string
+		if err := rows.Scan(&seat.ClassroomID, &seat.Row, &seat.Col, &seat.StudentID, &seat.StudentName, &seat.DeviceID, &updated); err != nil {
+			return nil, err
+		}
+		if seat.UpdatedAt, err = parseTimestamp(updated); err != nil {
+			return nil, err
+		}
+		out = append(out, seat)
+	}
+	return out, rows.Err()
 }
 
 var _ application.CommandRepository = (*Store)(nil)
