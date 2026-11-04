@@ -44,6 +44,13 @@ func (s *Store) Migrate(ctx context.Context) error {
 	if _, err := s.db.ExecContext(ctx, `PRAGMA foreign_keys = ON`); err != nil {
 		return fmt.Errorf("enable sqlite foreign keys: %w", err)
 	}
+	// WAL + NORMAL 同步：多读单写场景的吞吐与掉电安全折中
+	if _, err := s.db.ExecContext(ctx, `PRAGMA journal_mode = WAL`); err != nil {
+		return fmt.Errorf("enable wal: %w", err)
+	}
+	if _, err := s.db.ExecContext(ctx, `PRAGMA synchronous = NORMAL`); err != nil {
+		return fmt.Errorf("set synchronous: %w", err)
+	}
 	if _, err := s.db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)`); err != nil {
 		return fmt.Errorf("create migration table: %w", err)
 	}
@@ -443,6 +450,29 @@ func (s *Store) AppendAgentEvent(ctx context.Context, event AgentEvent) error {
 		return fmt.Errorf("insert agent event: %w", err)
 	}
 	return nil
+}
+
+// AppendAgentEvents stores a batch of agent audit records in one transaction.
+func (s *Store) AppendAgentEvents(ctx context.Context, events []AgentEvent) error {
+	if len(events) == 0 {
+		return nil
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	stmt, err := tx.PrepareContext(ctx, `INSERT OR IGNORE INTO agent_events(event_id, device_id, channel_id, kind, detail, occurred_at) VALUES(?, ?, ?, ?, ?, ?)`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+	for _, event := range events {
+		if _, err := stmt.ExecContext(ctx, event.EventID, event.DeviceID, event.ChannelID, event.Kind, event.Detail, event.OccurredAt.UTC().Format(time.RFC3339Nano)); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 // ListAgentEvents returns the most recent agent audit records, newest first.

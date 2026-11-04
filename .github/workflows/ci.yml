@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "feat/**"]
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27"
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test -timeout 10m ./...
+
+      - name: Frontend typecheck (teacher-desktop)
+        working-directory: apps/teacher-desktop
+        run: |
+          bun install --frozen-lockfile
+          bun run typecheck
+
+      - name: Frontend typecheck (student-ui)
+        working-directory: apps/student-ui
+        run: |
+          bun install --frozen-lockfile
+          bun run typecheck
+
+  build:
+    strategy:
+      matrix:
+        include:
+          - { os: windows-latest, target: windows/amd64 }
+          - { os: ubuntu-latest, target: linux/amd64 }
+          - { os: macos-latest, target: darwin/universal }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27"
+      - name: Cross-compile check
+        run: go build ./...
+        env:
+          GOOS: ${{ matrix.os == 'windows-latest' && 'windows' || matrix.os == 'ubuntu-latest' && 'linux' || 'darwin' }}
