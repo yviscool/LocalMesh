@@ -30,3 +30,7 @@ apps/*/data/
 
 # stray build artifacts at repo root
 /*.exe
+apps/*/agent.exe
+apps/*/student-ui.exe
+apps/*/teacher-desktop.exe
+student-ui.exe
