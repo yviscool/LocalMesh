@@ -113,6 +113,17 @@ type ActiveQuiz struct {
 	} `json:"quiz"`
 }
 
+// SendChat sends a classroom chat message from this student.
+func (s *StudentService) SendChat(_ context.Context, content string) error {
+	body := map[string]any{
+		"sender_id":   s.ui.deviceID,
+		"sender_name": s.ui.student,
+		"content":     content,
+	}
+	_, err := postTeacherJSON(s.ui.teacherURL+"/api/v1/chat/messages", body, httpTimeout)
+	return err
+}
+
 // ActiveQuiz returns the current quiz for the answering dialog.
 func (s *StudentService) ActiveQuiz(_ context.Context) (ActiveQuiz, error) {
 	var status ActiveQuiz

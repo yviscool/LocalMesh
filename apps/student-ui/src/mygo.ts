@@ -65,6 +65,10 @@ export const StudentService = {
   recentChat(limit: number): Promise<ChatMessage[]> {
     return call("StudentService.RecentChat", limit);
   },
+  /** SendChat sends a classroom chat message from this student. */
+  sendChat(content: string): Promise<void> {
+    return call("StudentService.SendChat", content);
+  },
   /** SubmitQuiz submits this student's answers. */
   submitQuiz(quizID: string, answers: Record<string, number[]>): Promise<Record<string, unknown>> {
     return call("StudentService.SubmitQuiz", quizID, answers);

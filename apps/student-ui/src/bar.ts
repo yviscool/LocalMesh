@@ -5,6 +5,7 @@ import { StudentService, events } from "./mygo";
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
 
 let quizPicked: Record<string, number[]> = {};
+let quizText: Record<string, string> = {};
 
 function fmtTime(iso: string): string {
   return new Date(iso).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
@@ -52,6 +53,21 @@ async function refreshChat() {
   } catch { /* teacher offline */ }
 }
 
+/* 发送消息 */
+$("#chat-send").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const input = $<HTMLInputElement>("#chat-input");
+  const text = input.value.trim();
+  if (!text) return;
+  try {
+    await StudentService.sendChat(text);
+    input.value = "";
+    void refreshChat();
+  } catch {
+    $("#bar-status").textContent = "发送失败";
+  }
+});
+
 /* 随堂测验 */
 $("#quiz-btn").addEventListener("click", () => {
   $("#quiz-pop").classList.toggle("open");
@@ -68,6 +84,7 @@ async function refreshQuiz() {
       return;
     }
     quizPicked = {};
+    quizText = {};
     body.replaceChildren(
       ...status.quiz.questions.map((q) => {
         const wrap = document.createElement("div");
@@ -76,6 +93,16 @@ async function refreshQuiz() {
         text.className = "q-text";
         text.textContent = q.text;
         wrap.append(text);
+        if (q.type === "text") {
+          const input = document.createElement("input");
+          input.className = "quiz-text";
+          input.placeholder = "在这里输入答案…";
+          input.addEventListener("input", () => {
+            quizText[q.id] = input.value;
+          });
+          wrap.append(input);
+          return wrap;
+        }
         q.options.forEach((opt, idx) => {
           const btn = document.createElement("button");
           btn.className = "quiz-opt";
@@ -96,7 +123,12 @@ async function refreshQuiz() {
     submit.addEventListener("click", async () => {
       if (Object.keys(quizPicked).length === 0) return;
       try {
-        await StudentService.submitQuiz(status.quiz!.id, quizPicked);
+        const answers = { ...quizPicked };
+        // 文字题合并进提交（教师端批阅）
+        if (Object.keys(quizText).length) {
+          (answers as Record<string, unknown>).text_answers = quizText;
+        }
+        await StudentService.submitQuiz(status.quiz!.id, answers);
         body.textContent = "✅ 答卷已提交";
         $("#quiz-pop").classList.add("open");
       } catch {
@@ -113,6 +145,9 @@ async function refreshQuiz() {
 events.uiNotify.on((n) => {
   if (n.type === "file") {
     $("#bar-status").textContent = n.title || "收到新文件";
+  }
+  if (n.type === "file_progress") {
+    $("#bar-status").textContent = n.title || "";
   }
 });
 
