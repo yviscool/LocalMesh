@@ -214,9 +214,12 @@ type Submission struct {
 	DeviceID    string           `json:"device_id"`
 	StudentName string           `json:"student_name"`
 	Answers     map[string][]int `json:"answers"` // QuestionID -> chosen option indices
-	SubmittedAt time.Time        `json:"submitted_at"`
-	Score       int              `json:"score"`
-	MaxScore    int              `json:"max_score"`
+	// TextAnswers carries free-text answers keyed by question id; graded as
+	// "answered" (non-empty) with teacher review afterwards.
+	TextAnswers map[string]string `json:"text_answers,omitempty"`
+	SubmittedAt time.Time         `json:"submitted_at"`
+	Score       int               `json:"score"`
+	MaxScore    int               `json:"max_score"`
 }
 
 // SessionState models the quiz progression lifecycle.
@@ -372,10 +375,16 @@ func (s *QuizSession) Submit(sub Submission) (*Submission, error) {
 		}
 	}
 
-	// Grade submission
+	// Grade submission. 文字题按"非空即得分"计（教师事后批阅调整）。
 	score := 0
 	maxScore := s.quiz.TotalPoints()
 	for _, q := range s.quiz.Questions {
+		if q.Type == TypeText {
+			if len(strings.TrimSpace(sub.TextAnswers[q.ID])) > 0 {
+				score += q.Points
+			}
+			continue
+		}
 		chosen := sub.Answers[q.ID]
 		score += q.Grade(chosen, s.allowPartialCredit)
 	}
