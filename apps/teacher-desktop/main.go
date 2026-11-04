@@ -83,6 +83,7 @@ type Console struct {
 	store        *sqlite.Store
 	hub          *agentHub
 	cfg          desktopconfig.Config
+	groupCast    *GroupCastManager
 	screenStream *screenStream
 	inputMu      sync.Mutex
 	inputConns   map[string]*inputConn
@@ -166,6 +167,8 @@ func NewConsole(cfg desktopconfig.Config) (*Console, error) {
 		ThumbnailQuality:    cfg.Thumbnails.Quality,
 	})
 
+	console.groupCast = &GroupCastManager{c: console}
+
 	// 回载持久化座位表
 	seats, err := store.ListSeats(storeCtx, defaultClassroomID)
 	if err == nil {
@@ -221,6 +224,7 @@ func main() {
 	mygo.Bind(&GroupService{c: console})
 	mygo.Bind(&SceneService{c: console})
 	mygo.Bind(&ConfigService{c: console})
+	mygo.Bind(&GroupCastService{c: console})
 
 	mygo.App.OnSecondInstance(func(_ []string, _ string) {
 		console.showMainWindow()
@@ -265,6 +269,22 @@ func (c *Console) serveHTTP(addr string) {
 
 	// Student-side endpoints so agents (or curl simulations) can interact.
 	mux.HandleFunc("POST /api/v1/agent/poll", c.handleAgentPoll)
+	mux.HandleFunc("GET /api/v1/groups", func(w http.ResponseWriter, _ *http.Request) {
+		groups, members, err := c.store.ListGroups(context.Background())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		type groupView struct {
+			GroupID string   `json:"group_id"`
+			Members []string `json:"members"`
+		}
+		out := make([]groupView, 0, len(groups))
+		for _, g := range groups {
+			out = append(out, groupView{GroupID: g.GroupID, Members: members[g.GroupID]})
+		}
+		writeJSON(w, http.StatusOK, out)
+	})
 	mux.HandleFunc("GET /files/", c.handleServeFile)
 	mux.HandleFunc("POST /api/v1/files/collect", c.handleCollectUpload)
 	mux.HandleFunc("POST /api/v1/chat/messages", c.handleStudentChat)

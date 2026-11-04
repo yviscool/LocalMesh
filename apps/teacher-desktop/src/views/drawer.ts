@@ -78,15 +78,22 @@ export async function sendChat(content: string, target: string) {
   renderChat();
 }
 
-/** Refresh chat target dropdown with online devices. */
+/** Refresh chat target dropdown: 全班 / 各分组 / 在线设备。 */
 export function refreshChatTargets() {
   const select = document.getElementById("chat-target") as HTMLSelectElement;
   const current = select.value;
   clear(select);
   select.append(el("option", { value: "" }, "全班"));
-  for (const d of store.get().devices) {
-    select.append(el("option", { value: d.device_id }, d.device_id));
+  const groupGroup = el("optgroup", { label: "分组" });
+  for (const g of store.get().groups) {
+    groupGroup.append(el("option", { value: "group:" + g.group_id }, g.name));
   }
+  if (groupGroup.children.length > 0) select.append(groupGroup);
+  const deviceGroup = el("optgroup", { label: "私聊" });
+  for (const d of store.get().devices) {
+    deviceGroup.append(el("option", { value: d.device_id }, d.device_id));
+  }
+  if (deviceGroup.children.length > 0) select.append(deviceGroup);
   if ([...select.options].some((o) => o.value === current)) select.value = current;
 }
 

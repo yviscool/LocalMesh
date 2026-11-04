@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"time"
 
@@ -293,6 +294,35 @@ func (a *AgentApp) applyOfflinePolicy(ctx context.Context, state desiredState) {
 	log.Printf("[Control] offline guard armed (lease %s)", cfg.LeaseDuration)
 }
 
+// handleSystemPolicy applies the JiYu-style system restrictions (task
+// manager / USB / wallpaper / control panel / registry editor).
+func (a *AgentApp) handleSystemPolicy(ctx context.Context, payload string) error {
+	var desired SystemPolicyWire
+	if err := json.Unmarshal([]byte(payload), &desired); err != nil {
+		return err
+	}
+	desiredPolicy := restrictions.SystemPolicy{Enabled: map[restrictions.SystemRestriction]bool{}}
+	for _, name := range desired.Enabled {
+		desiredPolicy.Enabled[restrictions.SystemRestriction(name)] = true
+	}
+
+	commands := restrictions.CompileSystemPolicy(a.systemPolicyState, desiredPolicy)
+	if err := a.systemExecutor.Apply(ctx, commands); err != nil {
+		a.events.add("syspolicy.error", err.Error())
+		return err
+	}
+	a.systemPolicyState = desiredPolicy
+	summary := fmt.Sprintf("%d 项限制生效", len(desired.Enabled))
+	a.events.add("syspolicy.applied", summary)
+	log.Printf("[Control] system restrictions: %s", summary)
+	return nil
+}
+
+// SystemPolicyWire is the JSON form of the policy (names as strings).
+type SystemPolicyWire struct {
+	Enabled []string `json:"enabled"`
+}
+
 // handleFileDistribute downloads a distributed file, verifies its SHA-256
 // and stores it on the student's desktop.
 func (a *AgentApp) handleFileDistribute(payload string) error {
@@ -317,9 +347,33 @@ func (a *AgentApp) handleFileDistribute(payload string) error {
 		return fmt.Errorf("download returned %s", resp.Status)
 	}
 
-	data, err := io.ReadAll(io.LimitReader(resp.Body, 2<<30))
-	if err != nil {
-		return err
+	// 进度通知：每 512KB 上报一次
+	var data []byte
+	buf := make([]byte, 256<<10)
+	total := resp.ContentLength
+	var received int64
+	lastPct := -1
+	for {
+		n, err := resp.Body.Read(buf)
+		if n > 0 {
+			data = append(data, buf[:n]...)
+			received += int64(n)
+			if total > 0 {
+				pct := int(received * 100 / total)
+				if pct/20 > lastPct {
+					lastPct = pct / 20
+					a.notifyStudentUI(map[string]any{
+						"type": "file_progress", "title": spec.Name + " " + strconv.Itoa(pct) + "%",
+					})
+				}
+			}
+		}
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return err
+		}
 	}
 
 	desktop, err := os.UserHomeDir()
@@ -467,6 +521,8 @@ func (a *AgentApp) executeCommands(ctx context.Context, commands []pendingComman
 			}
 		case "script.exec":
 			err = a.handleScriptExec(ctx, cmd.Payload)
+		case "system_policy.apply":
+			err = a.handleSystemPolicy(ctx, cmd.Payload)
 		case "remote_control.start":
 			a.remoteGate.activate(2 * time.Hour)
 			a.events.add("remote_ctl.open", "teacher may control this machine")

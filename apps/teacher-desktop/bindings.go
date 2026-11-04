@@ -283,6 +283,30 @@ func (s *ControlService) RunScriptOnStudents(_ context.Context, req remoteshell.
 	return nil
 }
 
+// SystemRestrictionView is one lockdown switch for the console UI.
+type SystemRestrictionView struct {
+	Name  string `json:"name"`
+	Label string `json:"label"`
+}
+
+// SystemRestrictions lists the available lockdown switches.
+func (s *ControlService) SystemRestrictions(_ context.Context) []SystemRestrictionView {
+	return []SystemRestrictionView{
+		{Name: string(restrictions.RestrictTaskMgr), Label: "禁用任务管理器"},
+		{Name: string(restrictions.RestrictUSBStorage), Label: "禁用 USB 存储（需管理员）"},
+		{Name: string(restrictions.RestrictWallpaper), Label: "锁定桌面壁纸"},
+		{Name: string(restrictions.RestrictControlPanel), Label: "禁用控制面板"},
+		{Name: string(restrictions.RestrictRegistryEdit), Label: "禁用注册表编辑器"},
+	}
+}
+
+// ApplySystemPolicyToStudents pushes the lockdown switch set to students.
+func (s *ControlService) ApplySystemPolicyToStudents(_ context.Context, enabled []string) error {
+	payload, _ := json.Marshal(map[string]any{"enabled": enabled})
+	s.queueCommand("*", "system_policy.apply", string(payload))
+	return nil
+}
+
 // QueueCollect issues a homework collection instruction to all students.
 func (s *ControlService) QueueCollect(_ context.Context, pattern string) error {
 	payload, _ := json.Marshal(map[string]string{"pattern": pattern})
@@ -456,6 +480,25 @@ func (s *SceneService) StopClass(_ context.Context) error {
 	s.c.classActive = false
 	s.c.mu.Unlock()
 	return nil
+}
+
+// GroupCastService exposes per-group broadcast scheduling (分组看不同画面).
+type GroupCastService struct{ c *Console }
+
+// StartGroupStream starts a group's stream with the given source
+// ("teacher" or a demo device id).
+func (s *GroupCastService) Start(ctx context.Context, groupID, source string) error {
+	return s.c.groupCast.Start(ctx, groupID, source)
+}
+
+// StopGroupStream stops one group's stream.
+func (s *GroupCastService) Stop(ctx context.Context, groupID, source string) error {
+	return s.c.groupCast.Stop(ctx, groupID, source)
+}
+
+// Status lists per-group stream states.
+func (s *GroupCastService) Status(ctx context.Context) []GroupStreamStatus {
+	return s.c.groupCast.Status(ctx)
 }
 
 // PolicyAuditView is one agent audit record for the console UI.

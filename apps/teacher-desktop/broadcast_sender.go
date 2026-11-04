@@ -62,6 +62,20 @@ func (s *screenStream) fanOutGroup(groupID string, port int) error {
 	return nil
 }
 
+func (s *screenStream) stopOneGroup(groupID string) {
+	s.groupMu.Lock()
+	defer s.groupMu.Unlock()
+	tx, ok := s.groupTX[groupID]
+	if !ok {
+		return
+	}
+	_ = tx.Close()
+	if s.loop != nil {
+		s.loop.DetachSender(tx)
+	}
+	delete(s.groupTX, groupID)
+}
+
 func (s *screenStream) stopGroups() {
 	s.groupMu.Lock()
 	defer s.groupMu.Unlock()

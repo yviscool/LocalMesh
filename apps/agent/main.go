@@ -71,6 +71,8 @@ type AgentApp struct {
 	channelID        int
 	nfMgr            *netfilter.Manager
 	scriptRunner     *remoteshell.Runner
+	systemPolicyState restrictions.SystemPolicy
+	systemExecutor    restrictions.SystemPolicyExecutor
 	remoteGate       remoteControlGate
 	broadcastRX      *broadcastReceiver
 	feed             *broadcastFeed

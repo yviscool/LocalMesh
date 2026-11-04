@@ -25,6 +25,9 @@ const (
 	FormatRawRGBA FrameFormat = 2
 	FormatJPEG    FrameFormat = 3
 	FormatPNG     FrameFormat = 4
+	// FormatH264 reserves the payload format for the H.264 path
+	// (Annex-B NALUs; see docs/H264-EVALUATION.md).
+	FormatH264 FrameFormat = 5
 )
 
 func (f FrameFormat) String() string {
@@ -37,6 +40,8 @@ func (f FrameFormat) String() string {
 		return "JPEG"
 	case FormatPNG:
 		return "PNG"
+	case FormatH264:
+		return "H264"
 	default:
 		return fmt.Sprintf("Unknown(%d)", f)
 	}

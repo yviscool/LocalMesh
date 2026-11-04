@@ -34,6 +34,8 @@ import {
   openPowerModal,
   quickUnlock,
   openSettingsModal,
+  openGroupCastModal,
+  openSystemPolicyModal,
 } from "./views/modals";
 import {
   openAttendanceModal,
@@ -70,12 +72,14 @@ const menuGroups: MenuGroup[] = [
   { icon: "🎓", label: "课堂", items: [
     { icon: "🎙️", label: "伴音同传", run: () => toggleAudio(), toggle: () => store.get().audio.streaming },
     { icon: "👥", label: "分组教学", run: () => openGroupModal() },
+    { icon: "📡", label: "分组广播", run: () => openGroupCastModal() },
     { icon: "📄", label: "文件分发", run: () => openFileDistributeModal() },
     { icon: "📥", label: "文件收集", run: () => openFileCollectModal() },
   ]},
   { icon: "🛡️", label: "管控", items: [
     { icon: "🔓", label: "一键解锁", run: () => quickUnlock() },
     { icon: "🛡️", label: "考试模式", run: () => openFirewallModal() },
+    { icon: "🚫", label: "系统限制", run: () => openSystemPolicyModal() },
     { icon: "📡", label: "机房频道", run: () => openChannelModal() },
   ]},
   { icon: "📚", label: "教学", items: [
@@ -396,6 +400,12 @@ async function boot() {
   } catch (err) {
     toast("⚠️", `初始化失败：${String(err)}`);
   }
+
+  // 首次运行引导（localStorage 一次性）
+  void (async () => {
+    const { maybeShowWizard } = await import("./views/modals");
+    void maybeShowWizard();
+  })();
 
   refreshChatTargets();
   applyClassroom();

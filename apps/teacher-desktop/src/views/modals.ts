@@ -2,8 +2,9 @@
 
 import { store } from "../state";
 import { clear, el, field, onModalClose, openModal, optionCards, toast } from "../ui";
-import { AuditService, BroadcastService, ClassroomService, ConfigService, ControlService, GroupService, events } from "../mygo";
+import { AuditService, BroadcastService, ClassroomService, ConfigService, ControlService, GroupCastService, GroupService, events } from "../mygo";
 import { errMsg } from "./seating";
+import { groupColor } from "../logic";
 
 /* ---------- 屏幕广播 ---------- */
 
@@ -702,3 +703,100 @@ export async function openSettingsModal() {
     }, "保存"),
   );
 }
+
+/* ---------- 分组广播调度（分组看不同画面） ---------- */
+
+export async function openGroupCastModal() {
+  const { body, foot, close } = openModal("📡", "分组广播调度", { wide: true });
+  const note = el("div", { class: "note info" }, "ⓘ 每个分组可独立选源开播：教师屏幕或某个学生的演示直推。组成员自动加入本组画面。");
+  const listWrap = el("div");
+
+  async function refresh() {
+    const [groups, streams] = await Promise.all([GroupService.listGroups(), GroupCastService.status()]);
+    clear(listWrap);
+    if (groups.length === 0) {
+      listWrap.append(el("div", { class: "event-empty" }, "请先在「分组教学」创建分组"));
+      return;
+    }
+    for (const g of groups) {
+      const stream = streams.find((s) => s.group_id === g.group_id);
+      const srcSel = el("select", { class: "mini-select" },
+        el("option", { value: "teacher" }, "教师屏幕"),
+        ...store.get().devices.filter((d) => g.members.includes(d.device_id)).map((d) => el("option", { value: d.device_id }, `演示：${d.device_id}`)),
+      ) as HTMLSelectElement;
+      if (stream?.source && stream.source !== "teacher") srcSel.value = stream.source;
+
+      listWrap.append(el("div", { class: "stat-card", style: "margin-bottom:9px" },
+        el("div", { style: "display:flex; align-items:center; gap:8px" },
+          el("span", { class: "dot", style: `background:${groupColor(g.name)}` }),
+          el("b", { style: "flex:1" }, g.name),
+          el("span", { class: "hud-chip" }, `端口 ${stream?.port ?? "—"}`),
+          stream?.active ? el("span", { class: "hud-chip hd" }, "开播中") : el("span", { class: "hud-chip" }, "未开播"),
+        ),
+        el("div", { style: "display:flex; gap:8px; margin-top:8px; align-items:center" },
+          el("div", { style: "width:220px" }, srcSel),
+          el("button", { class: "btn-sm primary", onclick: async () => {
+              try {
+                await GroupCastService.start(g.group_id, srcSel.value);
+                store.log("📡", `分组 ${g.name} 开播（源=${srcSel.value === "teacher" ? "教师屏幕" : srcSel.value}）`);
+                toast("📡", `${g.name} 广播已开播`);
+                await refresh();
+              } catch (err) { toast("⚠️", errMsg(err)); }
+            } }, "▶ 开播"),
+          el("button", { class: "btn-sm", onclick: async () => {
+              try {
+                await GroupCastService.stop(g.group_id, srcSel.value === "teacher" ? "teacher" : srcSel.value);
+                toast("📡", `${g.name} 广播已停止`);
+                await refresh();
+              } catch (err) { toast("⚠️", errMsg(err)); }
+            } }, "⏹ 停播"),
+        ),
+      ));
+    }
+  }
+
+  foot.append(el("button", { class: "btn", onclick: () => close() }, "关闭"));
+  body.append(note, listWrap);
+  await refresh();
+}
+
+/* ---------- 系统限制（考试模式分区） ---------- */
+
+export async function openSystemPolicyModal() {
+  const { body, foot, close } = openModal("🚫", "学生机系统限制", { wide: true });
+  const note = el("div", { class: "note info" }, "ⓘ 通过注册表策略下发到全部学生机；USB 存储限制需要学生机管理员权限。「还原」解除全部限制。");
+  const restrictions = await ControlService.systemRestrictions();
+  const checks = restrictions.map((r) => {
+    const check = el("input", { type: "checkbox" }) as HTMLInputElement;
+    return { view: r, check };
+  });
+
+  const list = el("div", { class: "kv-list" });
+  for (const { view, check } of checks) {
+    list.append(el("label", { class: "check-row", style: "padding:8px 11px; background:rgba(255,255,255,0.03); border-radius:8px; margin-bottom:6px" }, check, view.label));
+  }
+
+  body.append(note, list);
+  foot.append(
+    el("button", { class: "btn", onclick: async () => {
+        try {
+          await ControlService.applySystemPolicyToStudents([]);
+          store.log("🚫", "系统限制已全部还原");
+          toast("🚫", "限制已还原");
+          close();
+        } catch (err) { toast("⚠️", errMsg(err)); }
+      } }, "♻️ 还原全部"),
+    el("button", { class: "btn danger", onclick: async () => {
+        const enabled = checks.filter((c) => c.check.checked).map((c) => c.view.name);
+        if (enabled.length === 0) { toast("💡", "请至少勾选一项"); return; }
+        try {
+          await ControlService.applySystemPolicyToStudents(enabled);
+          store.log("🚫", `系统限制已下发（${enabled.length} 项）`);
+          toast("🚫", "系统限制已下发学生机");
+          close();
+        } catch (err) { toast("⚠️", errMsg(err)); }
+      } }, "🚫 下发限制"),
+  );
+}
+
+

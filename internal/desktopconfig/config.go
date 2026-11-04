@@ -95,7 +95,7 @@ func (c Config) Save(path string) error {
 func Path() string { return "data/config.toml" }
 
 func (c *Config) normalize() {
-	if c.Broadcast.FPS <= 0 || c.Broadcast.FPS > 30 {
+	if c.Broadcast.FPS <= 0 || c.Broadcast.FPS > 60 {
 		c.Broadcast.FPS = 15
 	}
 	if c.Broadcast.Quality <= 0 || c.Broadcast.Quality > 95 {

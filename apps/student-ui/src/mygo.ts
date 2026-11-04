@@ -67,8 +67,8 @@ export const StudentService = {
     return call("StudentService.RaiseHand", reason);
   },
   /**
-   * RecentChat returns recent classroom messages addressed to everyone or to
-   * this device.
+   * RecentChat returns recent classroom messages addressed to everyone, to
+   * this device, or to any group this device belongs to.
    */
   recentChat(limit: number): Promise<ChatMessage[]> {
     return call("StudentService.RecentChat", limit);

@@ -77,17 +77,30 @@ type ChatMessage struct {
 	IsWhisper   bool   `json:"is_whisper"`
 }
 
-// RecentChat returns recent classroom messages addressed to everyone or to
-// this device.
+// RecentChat returns recent classroom messages addressed to everyone, to
+// this device, or to any group this device belongs to.
 func (s *StudentService) RecentChat(_ context.Context, limit int) ([]ChatMessage, error) {
 	var all []ChatMessage
 	if err := getTeacherJSON(s.ui.teacherURL+"/api/v1/chat/messages", &all, httpTimeout); err != nil {
 		return nil, err
 	}
+	myGroups := map[string]bool{}
+	var candidates []struct {
+		GroupID string `json:"group_id"`
+		Members []string `json:"members"`
+	}
+	_ = getTeacherJSON(s.ui.teacherURL+"/api/v1/groups", &candidates, httpTimeout)
+	for _, g := range candidates {
+		for _, m := range g.Members {
+			if m == s.ui.deviceID {
+				myGroups["group:"+g.GroupID] = true
+			}
+		}
+	}
 	out := make([]ChatMessage, 0, limit)
 	for i := len(all) - 1; i >= 0 && len(out) < limit; i-- {
 		m := all[i]
-		if m.TargetID == "" || m.TargetID == s.ui.deviceID {
+		if m.TargetID == "" || m.TargetID == s.ui.deviceID || myGroups[m.TargetID] {
 			out = append(out, m)
 		}
 	}

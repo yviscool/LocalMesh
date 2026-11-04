@@ -179,6 +179,15 @@ export interface GPUInfo {
   vram_bytes: number;
 }
 
+/** GroupStreamStatus describes one group's active stream. */
+export interface GroupStreamStatus {
+  group_id: string;
+  port: number;
+  /** "teacher" | deviceID */
+  source: string;
+  active: boolean;
+}
+
 /** GroupView is a group with its members for the console UI. */
 export interface GroupView {
   group_id: string;
@@ -475,6 +484,12 @@ export interface StudentView {
   device_id: string;
 }
 
+/** SystemRestrictionView is one lockdown switch for the console UI. */
+export interface SystemRestrictionView {
+  name: string;
+  label: string;
+}
+
 export interface SystemTelemetry {
   os: OSInfo;
   hostname: string;
@@ -555,6 +570,10 @@ export const ControlService = {
   applyProcessPolicyToStudents(pol: ProcessPolicy): Promise<void> {
     return call("ControlService.ApplyProcessPolicyToStudents", pol);
   },
+  /** ApplySystemPolicyToStudents pushes the lockdown switch set to students. */
+  applySystemPolicyToStudents(enabled: string[]): Promise<void> {
+    return call("ControlService.ApplySystemPolicyToStudents", enabled);
+  },
   /** FirewallPolicy returns the active network filtering policy. */
   firewallPolicy(): Promise<NetworkPolicy> {
     return call("ControlService.FirewallPolicy");
@@ -604,6 +623,10 @@ export const ControlService = {
   /** SetOfflinePolicy configures the student offline behavior. */
   setOfflinePolicy(pol: OfflinePolicy): Promise<void> {
     return call("ControlService.SetOfflinePolicy", pol);
+  },
+  /** SystemRestrictions lists the available lockdown switches. */
+  systemRestrictions(): Promise<SystemRestrictionView[]> {
+    return call("ControlService.SystemRestrictions");
   },
   /**
    * ToggleRemoteControl opens or closes the remote-control gate on a student
@@ -930,6 +953,25 @@ export const ConfigService = {
    */
   update(cfg: Config): Promise<void> {
     return call("ConfigService.Update", cfg);
+  },
+} as const;
+
+/** GroupCastService exposes per-group broadcast scheduling (分组看不同画面). */
+export const GroupCastService = {
+  /**
+   * StartGroupStream starts a group's stream with the given source
+   * ("teacher" or a demo device id).
+   */
+  start(groupID: string, source: string): Promise<void> {
+    return call("GroupCastService.Start", groupID, source);
+  },
+  /** Status lists per-group stream states. */
+  status(): Promise<GroupStreamStatus[]> {
+    return call("GroupCastService.Status");
+  },
+  /** StopGroupStream stops one group's stream. */
+  stop(groupID: string, source: string): Promise<void> {
+    return call("GroupCastService.Stop", groupID, source);
   },
 } as const;
 

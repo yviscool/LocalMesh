@@ -206,7 +206,7 @@ export function openQuizModal() {
 
   function addQuestion() {
     const q: QuizQuestion = {
-      id: `q${questions.length + 1}`,
+      id: `q${Date.now()}-${questions.length + 1}`,
       text: "",
       type: "single_choice",
       options: ["", "", "", ""],
@@ -214,7 +214,45 @@ export function openQuizModal() {
       points: 10,
     };
     questions.push(q);
-    builder.append(questionEditor(q));
+    builder.append(questionCard(q));
+  }
+
+  /** 单题卡片：编辑 + 上移/下移/复制/删除 */
+  function questionCard(q: QuizQuestion): HTMLElement {
+    const card = questionEditor(q);
+    const tools = el("div", { style: "display:flex; gap:5px; margin-top:8px" });
+    const move = (delta: number) => {
+      const i = questions.indexOf(q);
+      const j = i + delta;
+      if (j < 0 || j >= questions.length) return;
+      const a = questions[i];
+      const b = questions[j];
+      if (!a || !b) return;
+      [questions[i], questions[j]] = [b, a];
+      rebuildBuilder();
+    };
+    tools.append(
+      el("button", { class: "btn-sm", onclick: () => move(-1) }, "↑ 上移"),
+      el("button", { class: "btn-sm", onclick: () => move(1) }, "↓ 下移"),
+      el("button", { class: "btn-sm", onclick: () => {
+          const copy: QuizQuestion = { ...q, id: `q${Date.now()}` };
+          questions.splice(questions.indexOf(q) + 1, 0, copy);
+          rebuildBuilder();
+        } }, "⧉ 复制"),
+      el("button", { class: "btn-sm danger", onclick: () => {
+          const i = questions.indexOf(q);
+          if (questions.length <= 1) { toast("💡", "至少保留一道题"); return; }
+          questions.splice(i, 1);
+          rebuildBuilder();
+        } }, "🗑 删除"),
+    );
+    card.append(tools);
+    return card;
+  }
+
+  function rebuildBuilder() {
+    clear(builder);
+    for (const q of questions) builder.append(questionCard(q));
   }
 
   const addBtn = el("button", { class: "btn", onclick: () => addQuestion() }, "＋ 添加题目");
