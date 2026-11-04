@@ -8,8 +8,12 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
+
+	"localmesh/internal/capabilities/filetransfer"
 
 	"localmesh/internal/capabilities/audio"
 	"localmesh/internal/capabilities/netfilter"
@@ -267,6 +271,105 @@ func (a *AgentApp) applyOfflinePolicy(ctx context.Context, state desiredState) {
 	log.Printf("[Control] offline guard armed (lease %s)", cfg.LeaseDuration)
 }
 
+// handleFileDistribute downloads a distributed file, verifies its SHA-256
+// and stores it on the student's desktop.
+func (a *AgentApp) handleFileDistribute(payload string) error {
+	var spec struct {
+		URL  string `json:"url"`
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal([]byte(payload), &spec); err != nil {
+		return err
+	}
+	if spec.URL == "" || spec.Name == "" {
+		return fmt.Errorf("incomplete distribute payload")
+	}
+
+	client := &http.Client{Timeout: 10 * time.Minute}
+	resp, err := client.Get(spec.URL)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("download returned %s", resp.Status)
+	}
+
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 2<<30))
+	if err != nil {
+		return err
+	}
+
+	desktop, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	dir := filepath.Join(desktop, "Desktop", "LocalMesh 收到的文件")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	dst := filepath.Join(dir, filepath.Base(spec.Name))
+	if err := os.WriteFile(dst, data, 0o644); err != nil {
+		return err
+	}
+
+	a.notifyStudentUI(map[string]any{"type": "file", "title": "收到文件 " + spec.Name})
+	a.events.add("file.received", spec.Name)
+	log.Printf("[Files] distributed file saved: %s", dst)
+	return nil
+}
+
+// handleFileCollect scans the student desktop for matching files, packs them
+// and uploads the archive to the teacher console.
+func (a *AgentApp) handleFileCollect(ctx context.Context, payload string) error {
+	var spec fileCollectSpec
+	if err := json.Unmarshal([]byte(payload), &spec); err != nil {
+		return err
+	}
+
+	desktop, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	files, err := filetransfer.FindMatchingFiles(filepath.Join(desktop, "Desktop"), spec.Pattern, 50<<20)
+	if err != nil || len(files) == 0 {
+		a.events.add("file.collect", "no matching files")
+		return err
+	}
+
+	studentCtx := filetransfer.StudentContext{DeviceID: string(a.deviceID)}
+	var buf bytes.Buffer
+	if _, err := filetransfer.PackToZip(files, studentCtx, "{{device}}/{{filename}}", 500<<20, &buf); err != nil {
+		return err
+	}
+
+	uploadURL := teacherURLJoin(a.teacherURL, "/api/v1/files/collect")
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, uploadURL, bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/zip")
+	req.Header.Set("X-Device-ID", string(a.deviceID))
+	req.Header.Set("X-Filename", "homework.zip")
+
+	resp, err := (&http.Client{Timeout: 10 * time.Minute}).Do(req)
+	if err != nil {
+		return err
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("upload returned %s", resp.Status)
+	}
+	a.events.add("file.collected", fmt.Sprintf("%d files", len(files)))
+	log.Printf("[Files] collected %d files -> teacher", len(files))
+	return nil
+}
+
+// fileCollectSpec mirrors the teacher's collect instruction.
+type fileCollectSpec struct {
+	Pattern string `json:"pattern"`
+}
+
 // executeCommands runs queued one-shot commands and records their acks.
 func (a *AgentApp) executeCommands(ctx context.Context, commands []pendingCommand) {
 	for _, cmd := range commands {
@@ -290,6 +393,18 @@ func (a *AgentApp) executeCommands(ctx context.Context, commands []pendingComman
 			}
 		case "screen.unlock":
 			err = a.lockMgr.Unlock()
+		case "file.distribute":
+			err = a.handleFileDistribute(cmd.Payload)
+		case "file.collect":
+			err = a.handleFileCollect(ctx, cmd.Payload)
+		case "remote_control.start":
+			a.remoteGate.activate(2 * time.Hour)
+			a.events.add("remote_ctl.open", "teacher may control this machine")
+			log.Printf("[RemoteCtl] gate opened")
+		case "remote_control.stop":
+			a.remoteGate.deactivate()
+			a.events.add("remote_ctl.close", "control released")
+			log.Printf("[RemoteCtl] gate closed")
 		default:
 			// state-applied actions (netfilter.apply/process.apply/…) are
 			// handled idempotently by applyEnvelope; ack them directly.
@@ -307,7 +422,8 @@ func (a *AgentApp) executeCommands(ctx context.Context, commands []pendingComman
 	}
 }
 
-// setChannel retunes the announcement and audio multicast to the channel.
+// setChannel retunes the announcement, audio multicast and broadcast
+// receiver to the new channel.
 func (a *AgentApp) setChannel(id int) {
 	a.mu.Lock()
 	a.channelID = id
@@ -329,6 +445,9 @@ func (a *AgentApp) setChannel(id int) {
 		_ = sender.Close()
 	}
 	a.restartAudioReceiver()
+	if a.broadcastRX != nil {
+		a.broadcastRX.retune(id)
+	}
 	log.Printf("[Channel] followed teacher to channel %d", id)
 }
 

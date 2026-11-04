@@ -28,20 +28,24 @@ const (
 // screenServer serves on-demand full-resolution screen frames:
 //
 //	GET /frame.jpg          one full-resolution JPEG snapshot
-//	GET /stream.mjpg?fps=10 multipart MJPEG live stream
+//	GET /stream.mjpg        multipart MJPEG live stream of the local screen
+//	GET /broadcast.mjpg     multipart MJPEG of the classroom broadcast feed
 //	GET /screen/info        JSON {width, height}
 type screenServer struct {
-	srv *http.Server
+	srv  *http.Server
+	feed *broadcastFeed
 }
 
-func newScreenServer(addr string) *screenServer {
+func newScreenServer(addr string, feed *broadcastFeed) *screenServer {
 	mux := http.NewServeMux()
 	s := &screenServer{
-		srv: &http.Server{Addr: addr, Handler: mux},
+		srv:  &http.Server{Addr: addr, Handler: mux},
+		feed: feed,
 	}
 
 	mux.HandleFunc("GET /frame.jpg", s.handleFrame)
 	mux.HandleFunc("GET /stream.mjpg", s.handleStream)
+	mux.HandleFunc("GET /broadcast.mjpg", s.handleBroadcastStream)
 	mux.HandleFunc("GET /screen/info", s.handleInfo)
 	return s
 }
@@ -136,6 +140,43 @@ func (s *screenServer) handleStream(w http.ResponseWriter, r *http.Request) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+		}
+	}
+}
+
+// handleBroadcastStream streams the classroom broadcast feed as MJPEG.
+// The student UI renders this with a plain <img> element.
+func (s *screenServer) handleBroadcastStream(w http.ResponseWriter, r *http.Request) {
+	if s.feed == nil {
+		http.Error(w, "broadcast feed unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	w.Header().Set("Content-Type", "multipart/x-mixed-replace; boundary=lmframe")
+	w.Header().Set("Cache-Control", "no-store")
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+
+	ctx := r.Context()
+	for {
+		jpegData, fw, fh, ok := s.feed.snapshot()
+		if ok {
+			fmt.Fprintf(w, "\r\n--lmframe\r\nContent-Type: image/jpeg\r\nContent-Length: %d\r\nX-Frame-Width: %d\r\nX-Frame-Height: %d\r\n\r\n", len(jpegData), fw, fh)
+			if _, err := w.Write(jpegData); err != nil {
+				return
+			}
+			flusher.Flush()
+		}
+
+		// Wait for the next frame or client disconnect; resync every second
+		// so a stalled feed still streams (the viewer tolerates repeats).
+		select {
+		case <-ctx.Done():
+			return
+		case <-s.feed.wakeCh():
+		case <-time.After(time.Second):
 		}
 	}
 }

@@ -69,6 +69,9 @@ type AgentApp struct {
 	screenSrv        *screenServer
 	channelID        int
 	nfMgr            *netfilter.Manager
+	remoteGate       remoteControlGate
+	broadcastRX      *broadcastReceiver
+	feed             *broadcastFeed
 	events           eventBuffer
 	ackedMu          sync.Mutex
 	acked            []string
@@ -447,9 +450,14 @@ func (a *AgentApp) Start(ctx context.Context, enableDiscovery bool) error {
 	// 4. Start background classroom audio stream listener & low-latency player
 	a.restartAudioReceiver()
 
-	// 5. Start on-demand HD screen endpoint (teacher pulls full frames)
+	// 5. Start on-demand HD screen endpoint (teacher pulls full frames) and
+	// the classroom broadcast receiver (feeds /broadcast.mjpg for the UI)
+	a.feed = newBroadcastFeed()
+	a.feed.setNotifier(a.notifyStudentUI)
+	a.broadcastRX = newBroadcastReceiver(a.feed)
+	a.broadcastRX.retune(classroom.DefaultChannelID)
 	if a.screenHTTP != "" {
-		a.screenSrv = newScreenServer(a.screenHTTP)
+		a.screenSrv = newScreenServer(a.screenHTTP, a.feed)
 		a.screenSrv.Start()
 	}
 
@@ -458,7 +466,12 @@ func (a *AgentApp) Start(ctx context.Context, enableDiscovery bool) error {
 		go a.startThumbnailPusher(ctx, a.teacherURL)
 	}
 
-	// 7. Command channel: poll the teacher for desired state + commands
+	// 7. Remote control input channel (gated by teacher command)
+	if err := a.startRemoteControlServer(ctx); err != nil {
+		log.Printf("[RemoteCtl] %v", err)
+	}
+
+	// 8. Command channel: poll the teacher for desired state + commands
 	if a.teacherURL != "" {
 		go a.startPoller(ctx)
 	}
@@ -504,6 +517,9 @@ func (a *AgentApp) restartAudioReceiver() {
 func (a *AgentApp) Stop() {
 	if a.screenSrv != nil {
 		a.screenSrv.Stop()
+	}
+	if a.broadcastRX != nil {
+		a.broadcastRX.stop()
 	}
 
 	if a.discoveryStop != nil {
