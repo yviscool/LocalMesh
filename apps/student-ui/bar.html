@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>LocalMesh 学生端</title>
+    <link rel="stylesheet" href="./src/style.css" />
+  </head>
+  <body class="bar-page">
+    <div id="bar" style="--app-region: drag">
+      <span class="bar-gem"></span>
+      <button id="raise-btn" class="bar-btn" style="--app-region: no-drag" title="举手">✋ 举手</button>
+      <button id="chat-btn" class="bar-btn" style="--app-region: no-drag" title="消息">💬<span id="chat-badge" class="badge hidden">0</span></button>
+      <button id="quiz-btn" class="bar-btn" style="--app-region: no-drag" title="随堂测验">📝</button>
+      <span id="bar-status" class="bar-status"></span>
+    </div>
+    <div id="chat-pop" class="chat-pop hidden">
+      <div id="chat-list"></div>
+    </div>
+    <div id="quiz-pop" class="quiz-pop hidden">
+      <div id="quiz-body">暂无进行中的测验</div>
+    </div>
+    <script type="module" src="./src/bar.ts"></script>
+  </body>
+</html>

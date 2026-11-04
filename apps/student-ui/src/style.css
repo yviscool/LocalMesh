@@ -1,0 +1,159 @@
+/* LocalMesh 学生端 — 悬浮条 / 全屏接收窗 */
+
+:root {
+  --bg: #101623;
+  --border: rgba(255, 255, 255, 0.1);
+  --text: #e9edf5;
+  --muted: #8a93a8;
+  --accent: #5b8cff;
+  --grad: linear-gradient(135deg, #5b8cff, #8b5bf6);
+  --danger: #ff5b6a;
+  --r-md: 12px;
+  font-family: "Segoe UI Variable Display", "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { overflow: hidden; }
+
+body {
+  color: var(--text);
+  font-size: 13px;
+  user-select: none;
+  background: transparent;
+}
+
+body.bar-page { background: transparent; }
+body.viewer-page { background: #000; }
+
+/* 悬浮胶囊条 */
+#bar {
+  height: 58px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px;
+  background: linear-gradient(160deg, rgba(22, 30, 48, 0.96), rgba(14, 19, 31, 0.96));
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(20px);
+  margin: 8px;
+}
+
+.bar-gem {
+  width: 16px; height: 16px;
+  background: var(--grad);
+  border-radius: 5px;
+  transform: rotate(45deg);
+  box-shadow: 0 0 12px rgba(91, 140, 255, 0.55);
+  flex-shrink: 0;
+}
+
+.bar-btn {
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+  font-size: 12.5px;
+  font-family: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  transition: all 0.15s;
+  position: relative;
+}
+.bar-btn:hover { background: var(--grad); border-color: transparent; }
+.bar-btn:active { transform: scale(0.96); }
+
+.badge {
+  min-width: 16px; height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.badge.hidden { display: none; }
+
+.bar-status { font-size: 11px; color: var(--muted); margin-left: auto; white-space: nowrap; }
+
+/* 弹出小面板 */
+.chat-pop, .quiz-pop {
+  position: fixed;
+  right: 8px;
+  bottom: 74px;
+  width: 300px;
+  max-height: 300px;
+  overflow-y: auto;
+  background: rgba(16, 22, 35, 0.97);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  box-shadow: 0 10px 36px rgba(0, 0, 0, 0.6);
+  padding: 10px;
+  display: none;
+  z-index: 10;
+}
+.chat-pop.open, .quiz-pop.open { display: block; }
+.hidden { display: none !important; }
+
+.chat-msg { margin-bottom: 8px; font-size: 12px; line-height: 1.5; }
+.chat-msg .who { color: var(--accent); font-weight: 600; }
+.chat-msg.teacher-msg .who { color: #8b5bf6; }
+
+.quiz-q { margin-bottom: 10px; }
+.quiz-q .q-text { font-weight: 600; margin-bottom: 6px; }
+.quiz-opt {
+  display: block;
+  width: 100%;
+  padding: 7px 10px;
+  margin-bottom: 5px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+}
+.quiz-opt:hover { border-color: var(--accent); }
+.quiz-opt.picked { background: var(--grad); border-color: transparent; }
+.quiz-submit {
+  width: 100%;
+  padding: 8px;
+  border: none;
+  border-radius: 8px;
+  background: var(--grad);
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+/* 全屏接收窗 */
+.viewer-page { background: #000; }
+#broadcast-img {
+  width: 100vw;
+  height: 100vh;
+  object-fit: contain;
+  display: none;
+}
+#broadcast-img.live { display: block; }
+.viewer-tip {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  font-size: 16px;
+  letter-spacing: 2px;
+  animation: tipBreathe 2s ease-in-out infinite;
+}
+.viewer-tip.hidden { display: none; }
+@keyframes tipBreathe { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
