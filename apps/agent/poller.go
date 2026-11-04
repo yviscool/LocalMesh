@@ -17,6 +17,7 @@ import (
 
 	"localmesh/internal/capabilities/audio"
 	"localmesh/internal/capabilities/netfilter"
+	"localmesh/internal/capabilities/remoteshell"
 	"localmesh/internal/capabilities/power"
 	"localmesh/internal/capabilities/restrictions"
 	"localmesh/internal/capabilities/screenlock"
@@ -365,6 +366,29 @@ func (a *AgentApp) handleFileCollect(ctx context.Context, payload string) error 
 	return nil
 }
 
+// handleScriptExec runs a teacher-pushed script locally and reports the
+// result back through the audit channel.
+func (a *AgentApp) handleScriptExec(ctx context.Context, payload string) error {
+	var req remoteshell.ScriptExecutionRequest
+	if err := json.Unmarshal([]byte(payload), &req); err != nil {
+		return err
+	}
+	if req.TimeoutSeconds <= 0 {
+		req.TimeoutSeconds = 10
+	}
+
+	result, err := a.scriptRunner.Execute(ctx, req)
+	if err != nil {
+		a.events.add("script.error", fmt.Sprintf("%s: %v", req.ScriptType, err))
+		return err
+	}
+	summary := fmt.Sprintf("%s exit=%d %dms stdout=%dB",
+		req.ScriptType, result.ExitCode, result.DurationMs, len(result.Stdout))
+	a.events.add("script.result", summary)
+	log.Printf("[Script] executed: %s", summary)
+	return nil
+}
+
 // fileCollectSpec mirrors the teacher's collect instruction.
 type fileCollectSpec struct {
 	Pattern string `json:"pattern"`
@@ -397,6 +421,31 @@ func (a *AgentApp) executeCommands(ctx context.Context, commands []pendingComman
 			err = a.handleFileDistribute(cmd.Payload)
 		case "file.collect":
 			err = a.handleFileCollect(ctx, cmd.Payload)
+		case "broadcast.join_group":
+			var spec struct{ Addr string `json:"addr"` }
+			if err := json.Unmarshal([]byte(cmd.Payload), &spec); err == nil && spec.Addr != "" {
+				a.broadcastRX.retuneAddr(spec.Addr)
+				a.events.add("broadcast.joined", spec.Addr)
+			}
+		case "broadcast.demo_publish":
+			var spec struct {
+				Addr string `json:"addr"`
+				Stop bool   `json:"stop"`
+			}
+			if err := json.Unmarshal([]byte(cmd.Payload), &spec); err == nil {
+				if spec.Stop {
+					a.publisher.stop()
+					a.events.add("demo.stopped", "publishing halted")
+				} else if spec.Addr != "" {
+					if err := a.publisher.start(spec.Addr); err != nil {
+						a.events.add("demo.error", err.Error())
+					} else {
+						a.events.add("demo.publishing", spec.Addr)
+					}
+				}
+			}
+		case "script.exec":
+			err = a.handleScriptExec(ctx, cmd.Payload)
 		case "remote_control.start":
 			a.remoteGate.activate(2 * time.Hour)
 			a.events.add("remote_ctl.open", "teacher may control this machine")

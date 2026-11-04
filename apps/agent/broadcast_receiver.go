@@ -100,6 +100,12 @@ func newBroadcastReceiver(feed *broadcastFeed) *broadcastReceiver {
 // retune (re)joins the multicast group for the given channel; called on
 // start and on channel follow.
 func (r *broadcastReceiver) retune(channelID int) {
+	r.retuneAddr(classroom.DeriveMulticastAddr(channelID, broadcast.DefaultMulticastAddr))
+}
+
+// retuneAddr (re)joins an explicit multicast endpoint (groups use
+// port-offset addresses on the same channel octet).
+func (r *broadcastReceiver) retuneAddr(addr string) {
 	r.mu.Lock()
 	if r.cancel != nil {
 		r.cancel()
@@ -108,8 +114,6 @@ func (r *broadcastReceiver) retune(channelID int) {
 	ctx, cancel := context.WithCancel(context.Background())
 	r.cancel = cancel
 	r.mu.Unlock()
-
-	addr := classroom.DeriveMulticastAddr(channelID, broadcast.DefaultMulticastAddr)
 
 	go func() {
 		receiver, err := broadcast.NewMulticastReceiver(broadcast.MulticastReceiverConfig{

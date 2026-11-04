@@ -24,6 +24,7 @@ import (
 	"localmesh/internal/capabilities/netfilter"
 	"localmesh/internal/capabilities/power"
 	"localmesh/internal/capabilities/registry"
+	"localmesh/internal/capabilities/remoteshell"
 	"localmesh/internal/capabilities/restrictions"
 	"localmesh/internal/capabilities/screenlock"
 	"localmesh/internal/capabilities/watchdog"
@@ -69,10 +70,14 @@ type AgentApp struct {
 	screenSrv        *screenServer
 	channelID        int
 	nfMgr            *netfilter.Manager
+	scriptRunner     *remoteshell.Runner
 	remoteGate       remoteControlGate
 	broadcastRX      *broadcastReceiver
 	feed             *broadcastFeed
+	publisher        broadcastPublisher
 	events           eventBuffer
+	thumbMu          sync.Mutex
+	lastThumb        []byte
 	ackedMu          sync.Mutex
 	acked            []string
 	audioCancel      context.CancelFunc
@@ -377,6 +382,7 @@ func NewAgentApp(rt platform.Runtime, customID string, pipeAddr, discoveryAddr s
 		fileRcvr:         fileRcvr,
 		offlineGuard:     offlineGuard,
 		nfMgr:            netfilter.NewManager(nfAdapter),
+		scriptRunner:     remoteshell.NewRunner(),
 		channelID:        classroom.DefaultChannelID,
 		exitPasswordHash: HashPassword(DefaultExitPassword),
 		exitChan:         make(chan struct{}),
