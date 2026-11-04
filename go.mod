@@ -3,6 +3,7 @@ module localmesh
 go 1.27.3
 
 require (
+	github.com/BurntSushi/toml v1.6.0
 	github.com/egoist/mygo v0.7.4
 	github.com/quic-go/quic-go v0.54.1
 	golang.org/x/sys v0.48.0
@@ -10,7 +11,6 @@ require (
 )
 
 require (
-	github.com/BurntSushi/toml v1.6.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/ebitengine/purego v0.11.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect

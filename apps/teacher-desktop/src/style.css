@@ -748,3 +748,71 @@ body.monitor-page { overflow: hidden; }
   cursor: crosshair;
   touch-action: none;
 }
+/* ---------- 菜单浮层 ---------- */
+.ctx-menu { position: fixed; z-index: 300; min-width: 190px; padding: 6px; background: var(--glass); border: 1px solid var(--border-bright); border-radius: var(--r-md); box-shadow: var(--shadow); backdrop-filter: blur(28px); animation: popIn 0.14s ease; }
+.ctx-item { width: 100%; display: flex; align-items: center; gap: 9px; padding: 8px 11px; border: none; border-radius: 8px; background: transparent; color: var(--text); font-size: 12.5px; font-family: inherit; text-align: left; cursor: pointer; }
+.ctx-item:hover { background: var(--grad); }
+.ctx-item.danger { color: var(--danger); }
+.ctx-item.danger:hover { background: var(--danger); color: #fff; }
+.ctx-ico { width: 18px; text-align: center; }
+.ctx-sep { height: 1px; background: var(--border); margin: 5px 8px; }
+.dropdown { position: fixed; z-index: 300; min-width: 200px; }
+.dropdown .ctx-item { justify-content: space-between; }
+.dropdown .ctx-key { font-size: 10.5px; color: var(--faint); }
+
+/* ---------- 选中操作条 ---------- */
+#selection-bar { position: sticky; bottom: 8px; z-index: 20; display: flex; align-items: center; gap: 8px; margin: 0 auto; width: fit-content; padding: 9px 14px; background: var(--glass); border: 1px solid var(--border-bright); border-radius: 999px; box-shadow: var(--shadow); backdrop-filter: blur(24px); animation: fadeUp 0.2s ease; }
+#selection-bar .sel-count { font-weight: 700; color: var(--accent); margin-right: 4px; }
+#selection-bar .sep { width: 1px; height: 18px; background: var(--border); }
+
+/* ---------- 橡皮筋 ---------- */
+#rubber-band { position: fixed; border: 1px solid rgba(91, 140, 255, 0.7); background: rgba(91, 140, 255, 0.12); z-index: 15; pointer-events: none; }
+
+/* ---------- 卡片尺寸/分组色环 ---------- */
+#mosaic.mosaic-S { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
+#mosaic.mosaic-L { grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); }
+.dev-card .group-ring { position: absolute; left: 0; top: 0; bottom: 0; width: 3px; }
+
+/* ---------- 筛选 chips 工具栏 ---------- */
+.mosaic-toolbar { display: flex; align-items: center; gap: 8px; padding: 0 14px 4px; flex-shrink: 0; }
+.chip { height: 26px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--border); background: transparent; color: var(--muted); font-size: 11.5px; font-family: inherit; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; transition: all 0.15s; }
+.chip:hover { color: var(--text); }
+.chip.active { background: var(--grad); border-color: transparent; color: #fff; }
+.chip .dot { width: 8px; height: 8px; border-radius: 50%; }
+.mosaic-toolbar .spacer { flex: 1; }
+.mini-select { height: 26px; background: transparent; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); font-size: 11.5px; padding: 0 8px; outline: none; font-family: inherit; }
+
+/* ---------- 命令面板 ---------- */
+.palette-backdrop { position: fixed; inset: 0; z-index: 400; background: rgba(5, 7, 12, 0.5); display: flex; align-items: flex-start; justify-content: center; padding-top: 12vh; opacity: 0; transition: opacity 0.15s; }
+.palette-backdrop.open { opacity: 1; }
+.palette { width: min(560px, 90vw); background: var(--glass); border: 1px solid var(--border-bright); border-radius: var(--r-lg); box-shadow: var(--shadow); backdrop-filter: blur(32px); overflow: hidden; transform: translateY(-8px); transition: transform 0.15s; }
+.palette-backdrop.open .palette { transform: none; }
+.palette input { width: 100%; height: 46px; background: transparent; border: none; outline: none; border-bottom: 1px solid var(--border); color: var(--text); font-size: 15px; padding: 0 16px; }
+.palette-list { max-height: 320px; overflow-y: auto; padding: 6px; }
+.palette-item { width: 100%; display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: none; border-radius: 8px; background: transparent; color: var(--text); font-size: 13px; font-family: inherit; text-align: left; cursor: pointer; }
+.palette-item:hover, .palette-item.hot { background: var(--grad-soft); }
+.palette-item .p-ico { width: 20px; text-align: center; }
+
+/* ---------- 通知中心 ---------- */
+.notify-pop { position: fixed; right: 10px; bottom: calc(var(--statusbar-h) + 8px); width: 330px; max-height: 420px; overflow-y: auto; background: var(--glass); border: 1px solid var(--border-bright); border-radius: var(--r-md); box-shadow: var(--shadow); backdrop-filter: blur(28px); z-index: 250; padding: 8px; }
+.notify-item { display: flex; gap: 10px; align-items: flex-start; padding: 8px 10px; border-radius: 8px; }
+.notify-item:hover { background: var(--glass-bright); }
+.notify-item .n-time { margin-left: auto; font-size: 10.5px; color: var(--faint); flex-shrink: 0; }
+.notify-item.warn { border-left: 2px solid var(--warn); }
+.notify-item.danger { border-left: 2px solid var(--danger); }
+.st-quiz { display: flex; align-items: center; gap: 5px; color: var(--warn); font-weight: 600; }
+
+/* ---------- 设置 tabs ---------- */
+.settings-tabs { display: flex; gap: 4px; margin-bottom: 14px; }
+.settings-tab { flex: 1; height: 30px; border: 1px solid var(--border); border-radius: 8px; background: transparent; color: var(--muted); font-size: 12px; font-family: inherit; cursor: pointer; }
+.settings-tab.active { background: var(--grad-soft); color: var(--text); border-color: rgba(91,140,255,0.4); }
+
+/* ---------- 拖拽入座 ---------- */
+.seat.drag-over { border-color: var(--accent); background: rgba(91,140,255,0.12); }
+.roster-strip { display: flex; gap: 6px; flex-wrap: wrap; padding: 8px 10px; margin-bottom: 12px; background: rgba(255,255,255,0.02); border: 1px dashed var(--border); border-radius: var(--r-md); min-height: 46px; }
+.roster-chip { padding: 5px 11px; border-radius: 999px; background: var(--glass); border: 1px solid var(--border); font-size: 12px; cursor: grab; animation: popIn 0.2s ease; }
+
+/* ---------- 浅色主题 ---------- */
+body[data-theme="light"] { --bg: #eef1f7; --bg-deep: #dfe4ee; --glass: rgba(255,255,255,0.78); --glass-bright: rgba(0,0,0,0.04); --border: rgba(0,0,0,0.1); --border-bright: rgba(0,0,0,0.18); --text: #1a2030; --muted: #55607a; --faint: #8a93a8; }
+body[data-theme="light"] #titlebar, body[data-theme="light"] #statusbar { background: rgba(240,243,249,0.7); }
+body[data-theme="light"] #drawer { background: rgba(244,246,251,0.75); }

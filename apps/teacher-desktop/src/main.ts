@@ -1,7 +1,10 @@
 // LocalMesh 课堂 — 启动装配：命令栏、事件订阅、视图渲染
 
 import { store, normalizeGrid, type ActivityItem } from "./state";
-import { clear, el, toast } from "./ui";
+import { clear, el, showMenuAt, type MenuItemDef, toast } from "./ui";
+import { fuzzyMatch, groupColor, groupOfDevice, sortDevices } from "./logic";
+import { t } from "./i18n";
+import { GroupService } from "./mygo";
 import {
   BroadcastService,
   ClassroomService,
@@ -14,6 +17,10 @@ import {
 } from "./mygo";
 import { applyClassroom } from "./views/mosaic";
 import { refreshSeating, renderSeating } from "./views/seating";
+import { installRubberBand } from "./views/mosaic";
+import { openStudentDetail } from "./views/detail";
+import { buildPaletteEntries, openPalette } from "./views/notify";
+import { playCue, setSoundEnabled, soundEnabled } from "./sound";
 import { refreshChatTargets, renderActivity, renderChat, renderHands, sendChat } from "./views/drawer";
 import { renderStatusbar, startClock } from "./views/statusbar";
 import {
@@ -43,83 +50,121 @@ const nonNull = <T>(v: T | null | undefined): v is T => v != null;
 
 /* ---------- 命令栏 ---------- */
 
-type CmdDef = { icon: string; label: string; run: () => void; toggle?: () => boolean };
+type CmdDef = { icon: string; label: string; run: () => void; toggle?: () => boolean; key?: string };
 
-const commands: (CmdDef | "sep")[] = [
-  { icon: "▶", label: "上课", run: async () => {
-      try {
-        await SceneService.startClass({ lock: false, net_block: false, broadcast: true, audio: true, offline_guard: true });
-        store.log("▶", "上课场景已启动（广播+伴音+离线守护）");
-        toast("▶", "上课！广播已开启");
-      } catch (err) { toast("⚠️", String(err)); }
-    } },
-  { icon: "⏹", label: "下课", run: async () => {
-      try {
-        await SceneService.stopClass();
-        store.log("⏹", "下课场景已还原");
-        toast("⏹", "下课，全部还原");
-      } catch (err) { toast("⚠️", String(err)); }
-    } },
+type MenuGroup = { icon: string; label: string; items: (CmdDef | "sep")[] };
+
+const quickCommands: (CmdDef | "sep")[] = [
+  { icon: "▶", label: "上课", run: () => runSceneStart() },
+  { icon: "⏹", label: "下课", run: () => runSceneStop() },
+  "sep",
   { icon: "📣", label: "屏幕广播", run: () => openBroadcastModal() },
-  { icon: "👥", label: "分组", run: () => openGroupModal() },
-  { icon: "⚙️", label: "设置", run: () => openSettingsModal() },
   {
-    icon: "🎙️",
-    label: "伴音同传",
-    run: async () => {
-      try {
-        const next = store.get().audio.streaming ? await BroadcastService.stopAudio() : await BroadcastService.startAudio();
-        store.set({ audio: next });
-        store.log(next.streaming ? "🎙️" : "🔇", next.streaming ? "伴音同传已开启" : "伴音同传已停止");
-        toast(next.streaming ? "🎙️" : "🔇", next.streaming ? "同传开启" : "同传停止");
-      } catch (err) {
-        toast("⚠️", String(err));
-      }
-    },
-    toggle: () => store.get().audio.streaming,
+    icon: "🔒",
+    label: "黑屏肃静",
+    run: () => openLockModal(),
   },
-  "sep",
-  { icon: "🔒", label: "黑屏肃静", run: () => openLockModal() },
-  { icon: "🔓", label: "一键解锁", run: () => quickUnlock() },
-  "sep",
-  { icon: "🎨", label: "电子画板", run: () => openWhiteboardModal() },
-  { icon: "📝", label: "随堂测验", run: () => openQuizModal() },
-  { icon: "⏱️", label: "抢答竞赛", run: () => openBuzzerModal() },
-  { icon: "🙋", label: "点名考勤", run: () => openAttendanceModal() },
-  "sep",
-  { icon: "📄", label: "文件分发", run: () => openFileDistributeModal() },
-  { icon: "📥", label: "文件收集", run: () => openFileCollectModal() },
-  { icon: "💻", label: "脚本终端", run: () => openScriptModal() },
-  { icon: "📋", label: "资产盘点", run: () => openInventoryModal() },
-  { icon: "🛡️", label: "考试模式", run: () => openFirewallModal() },
-  { icon: "📡", label: "机房频道", run: () => openChannelModal() },
 ];
+
+const menuGroups: MenuGroup[] = [
+  { icon: "🎓", label: "课堂", items: [
+    { icon: "🎙️", label: "伴音同传", run: () => toggleAudio(), toggle: () => store.get().audio.streaming },
+    { icon: "👥", label: "分组教学", run: () => openGroupModal() },
+    { icon: "📄", label: "文件分发", run: () => openFileDistributeModal() },
+    { icon: "📥", label: "文件收集", run: () => openFileCollectModal() },
+  ]},
+  { icon: "🛡️", label: "管控", items: [
+    { icon: "🔓", label: "一键解锁", run: () => quickUnlock() },
+    { icon: "🛡️", label: "考试模式", run: () => openFirewallModal() },
+    { icon: "📡", label: "机房频道", run: () => openChannelModal() },
+  ]},
+  { icon: "📚", label: "教学", items: [
+    { icon: "🎨", label: "电子画板", run: () => openWhiteboardModal() },
+    { icon: "📝", label: "随堂测验", run: () => openQuizModal() },
+    { icon: "⏱️", label: "抢答竞赛", run: () => openBuzzerModal() },
+    { icon: "🙋", label: "点名考勤", run: () => openAttendanceModal() },
+  ]},
+  { icon: "🧰", label: "工具", items: [
+    { icon: "💻", label: "脚本终端", run: () => openScriptModal() },
+    { icon: "📋", label: "资产盘点", run: () => openInventoryModal() },
+    { icon: "⚙️", label: "设置", run: () => openSettingsModal() },
+  ]},
+];
+
+const allCommands: CmdDef[] = [
+  ...quickCommands.filter((c): c is CmdDef => c !== "sep"),
+  ...menuGroups.flatMap((g) => g.items.filter((c): c is CmdDef => c !== "sep")),
+  { icon: "🖥️", label: "伴音同传", run: () => toggleAudio(), toggle: () => store.get().audio.streaming },
+];
+
+async function toggleAudio() {
+  try {
+    const next = store.get().audio.streaming ? await BroadcastService.stopAudio() : await BroadcastService.startAudio();
+    store.set({ audio: next });
+    store.log(next.streaming ? "🎙️" : "🔇", next.streaming ? "伴音同传已开启" : "伴音同传已停止");
+    toast(next.streaming ? "🎙️" : "🔇", next.streaming ? "同传开启" : "同传停止");
+  } catch (err) {
+    toast("⚠️", String(err));
+  }
+}
+
+async function runSceneStart() {
+  try {
+    await SceneService.startClass({ lock: false, net_block: false, broadcast: true, audio: true, offline_guard: true });
+    store.log("▶", "上课场景已启动（广播+伴音+离线守护）");
+    toast("▶", "上课！广播已开启");
+  } catch (err) { toast("⚠️", String(err)); }
+}
+
+async function runSceneStop() {
+  try {
+    await SceneService.stopClass();
+    store.log("⏹", "下课场景已还原");
+    toast("⏹", "下课，全部还原");
+  } catch (err) { toast("⚠️", String(err)); }
+}
 
 function renderCommandbar() {
   const bar = $("#commandbar");
   clear(bar);
-  for (const cmd of commands) {
+  for (const cmd of quickCommands) {
     if (cmd === "sep") {
       bar.append(el("span", { class: "cmd-sep" }));
       continue;
     }
-    const btn = el(
-      "button",
-      { class: "cmd", title: cmd.label, onclick: () => cmd.run() },
+    const btn = el("button", { class: "cmd", title: cmd.label, onclick: () => cmd.run() },
       el("span", { class: "ico" }, cmd.icon),
-      el("span", {}, cmd.label),
-    );
+      el("span", {}, cmd.label));
     btn.dataset.cmd = cmd.label;
     bar.append(btn);
   }
+  for (const group of menuGroups) {
+    const btn = el("button", { class: "cmd", title: group.label, onclick: (e) => openDropdown(e as MouseEvent, group) },
+      el("span", { class: "ico" }, group.icon),
+      el("span", {}, group.label),
+      el("span", { class: "ctx-key" }, "▾"));
+    bar.append(btn);
+  }
+}
+
+function openDropdown(e: MouseEvent, group: MenuGroup) {
+  const btn = e.currentTarget as HTMLElement;
+  const rect = btn.getBoundingClientRect();
+  const items: MenuItemDef[] = group.items.map((item) => {
+    if (item === "sep") return { separator: true, label: "", run: () => {} };
+    return { icon: item.icon, label: item.label, run: item.run, danger: false };
+  });
+  showMenuAt(rect.left, rect.bottom + 6, items);
 }
 
 function refreshCommandStates() {
   const bar = $("#commandbar");
   for (const btn of bar.querySelectorAll<HTMLButtonElement>(".cmd")) {
-    const cmd = commands.find((c) => c !== "sep" && c.label === btn.dataset.cmd);
-    if (cmd === "sep" || !cmd?.toggle) continue;
-    btn.classList.toggle("toggle-on", cmd.toggle());
+    const label = btn.dataset.cmd;
+    const def = [...quickCommands, ...menuGroups.flatMap((g) => g.items)].filter(
+      (c): c is CmdDef => c !== "sep" && c.label === label,
+    )[0];
+    if (def?.toggle) btn.classList.toggle("toggle-on", def.toggle());
   }
 }
 
@@ -164,7 +209,10 @@ events.classroomDelta.on((delta) => {
       const known = new Set(devices.map((d) => d.device_id));
       const fresh = delta.added.filter((d) => !known.has(d.device_id));
       devices = [...devices, ...fresh];
-      fresh.forEach((d) => store.log("🟢", `${d.device_id} 上线`));
+      fresh.forEach((d) => {
+        store.log("🟢", `${d.device_id} 上线`);
+        store.notify("🟢", `${d.device_id} 上线`);
+      });
     }
     if (delta.removed?.length) {
       const gone = new Set(delta.removed);
@@ -172,6 +220,8 @@ events.classroomDelta.on((delta) => {
       delta.removed.forEach((id) => {
         thumbs.delete(id);
         store.log("🔴", `${id} 离线`);
+        store.notify("🔴", `${id} 离线`, "danger");
+        playCue("offline");
       });
       selected = new Set(selected);
       delta.removed.forEach((id) => selected.delete(id));
@@ -201,7 +251,12 @@ events.handsChanged.on((incoming) => {
   badge.textContent = String(hands.length);
   badge.classList.toggle("hidden", hands.length === 0);
   badge.classList.toggle("pulse", hands.length > 0);
-  if (hands.length > prev) toast("✋", `${hands[hands.length - 1]?.student_name || "有学生"} 举手了`);
+  if (hands.length > prev) {
+    const name = hands[hands.length - 1]?.student_name || "有学生";
+    toast("✋", `${name} 举手了`);
+    store.notify("✋", `${name} 举手了`, "warn");
+    playCue("hand");
+  }
 });
 events.broadcastMode.on((status) => {
   store.set({ broadcast: status });
@@ -280,6 +335,17 @@ function wireStaticUI() {
       document.querySelector<HTMLButtonElement>(".modal-close")?.click();
     }
   });
+
+  // Ctrl+K 命令面板
+  document.addEventListener("keydown", (e) => {
+    if (e.ctrlKey && (e.key === "k" || e.key === "K")) {
+      e.preventDefault();
+      openPalette(buildPaletteEntries(
+        allCommands.map((c) => ({ icon: c.icon, label: c.label, run: c.run })),
+        store.get().devices,
+      ));
+    }
+  });
 }
 
 /* ---------- 启动 ---------- */
@@ -346,11 +412,48 @@ async function boot() {
     refreshCommandStates();
   });
 
-  // 状态微轮询：伴音/锁定/命令栏状态（事件覆盖不到的低频状态）
+  // 分组载入 + 变更事件
+  void refreshGroups();
+  window.addEventListener("groups-changed", () => void refreshGroups());
+
+  // 拖框多选
+  installRubberBand();
+
+  // 主题
+  document.body.dataset.theme = localStorage.getItem("lm.theme") || "dark";
+
+  // 声音开关（设置页可改）
+  setSoundEnabled(localStorage.getItem("lm.sound") !== "off");
+
+  // 测验提交流（实时）
+  events.quizSubmission.on((sub) => {
+    store.log("📝", `${sub.student_name || sub.device_id} 已交卷 (${sub.score}/${sub.max_score})`);
+    store.notify("📝", `${sub.student_name || sub.device_id} 已交卷`, "info");
+    const s = store.get().quizLive;
+    if (s) store.set({ quizLive: { ...s, submissions: s.submissions + 1 } });
+  });
+
+  // 拦截/执行类上报 → 通知中心 + 声音
+  events.agentAudit.on((e) => {
+    if (String(e.Kind).startsWith("process.blocked")) {
+      store.notify("🚫", `${e.DeviceID}: ${e.Detail}`, "danger");
+      playCue("alert");
+    }
+  });
+
+  // 状态微轮询：伴音/锁定/测验常驻条
   setInterval(async () => {
     try {
-      const [audio, lock] = await Promise.all([BroadcastService.audioStatus(), ControlService.lockState()]);
-      store.set({ audio, lock: { state: lock.state, is_trapping: lock.is_trapping } });
+      const [audio, lock, quiz] = await Promise.all([
+        BroadcastService.audioStatus(),
+        ControlService.lockState(),
+        TeachingService.activeQuiz(),
+      ]);
+      store.set({
+        audio,
+        lock: { state: lock.state, is_trapping: lock.is_trapping },
+        quizLive: quiz.quiz ? { active: quiz.active, time_remain: quiz.time_remain, submissions: quiz.submissions } : null,
+      });
     } catch { /* ignore */ }
   }, 5000);
   setInterval(refreshCommandStates, 1000);
@@ -364,6 +467,14 @@ async function boot() {
   });
 
   void renderSeating; // 视图切换时按需渲染
+}
+
+async function refreshGroups() {
+  try {
+    const groups = await GroupService.listGroups();
+    store.set({ groups, filterGroup: store.get().filterGroup });
+    applyClassroom();
+  } catch { /* ignore */ }
 }
 
 boot();

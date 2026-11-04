@@ -15,6 +15,15 @@ type Config struct {
 	Thumbnails ThumbnailsConfig `toml:"thumbnails" json:"thumbnails"`
 	Offline    OfflineConfig    `toml:"offline" json:"offline"`
 	Log        LogConfig        `toml:"log" json:"log"`
+	Network    NetworkConfig    `toml:"network" json:"network"`
+}
+
+// NetworkConfig holds the listen ports (restart required to apply).
+type NetworkConfig struct {
+	HTTPPort      int `toml:"http_port" json:"http_port"`
+	DiscoveryPort int `toml:"discovery_port" json:"discovery_port"`
+	ScreenPort    int `toml:"screen_port" json:"screen_port"`
+	RemotePort    int `toml:"remote_port" json:"remote_port"`
 }
 
 // BroadcastConfig controls the screen multicast pipeline.
@@ -49,6 +58,7 @@ func Defaults() Config {
 		Thumbnails: ThumbnailsConfig{IntervalMS: 2000, Quality: 70},
 		Offline:    OfflineConfig{Enabled: true, LeaseSeconds: 10},
 		Log:        LogConfig{Level: "info"},
+		Network:    NetworkConfig{HTTPPort: 8080, DiscoveryPort: 7444, ScreenPort: 7450, RemotePort: 7451},
 	}
 }
 
@@ -105,5 +115,17 @@ func (c *Config) normalize() {
 	}
 	if c.Log.Level == "" {
 		c.Log.Level = "info"
+	}
+	if c.Network.HTTPPort <= 0 {
+		c.Network.HTTPPort = 8080
+	}
+	if c.Network.DiscoveryPort <= 0 {
+		c.Network.DiscoveryPort = 7444
+	}
+	if c.Network.ScreenPort <= 0 {
+		c.Network.ScreenPort = 7450
+	}
+	if c.Network.RemotePort <= 0 {
+		c.Network.RemotePort = 7451
 	}
 }

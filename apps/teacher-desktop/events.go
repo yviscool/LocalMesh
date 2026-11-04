@@ -35,7 +35,19 @@ var (
 	// EventLockStatus carries the screen lock state after any change,
 	// including unlocks made from the tray.
 	EventLockStatus = mygo.NewEvent[screenlock.LockStatus]("lock:status")
+	// EventQuizSubmission carries one quiz submission as it arrives.
+	EventQuizSubmission = mygo.NewEvent[QuizSubmissionNotice]("quiz:submission")
 )
+
+// QuizSubmissionNotice is the realtime submission feed payload.
+type QuizSubmissionNotice struct {
+	QuizID     string `json:"quiz_id"`
+	StudentID  string `json:"student_id"`
+	DeviceID   string `json:"device_id"`
+	StudentName string `json:"student_name"`
+	Score      int    `json:"score"`
+	MaxScore   int    `json:"max_score"`
+}
 
 // startWatchers bridges manager activity into page events. All goroutines
 // stop naturally once the window closes (Emit reports an error).

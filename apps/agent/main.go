@@ -76,6 +76,7 @@ type AgentApp struct {
 	feed             *broadcastFeed
 	publisher        broadcastPublisher
 	events           eventBuffer
+	thumbCtl         thumbnailController
 	thumbMu          sync.Mutex
 	lastThumb        []byte
 	ackedMu          sync.Mutex

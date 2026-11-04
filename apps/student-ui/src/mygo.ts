@@ -50,6 +50,14 @@ export const StudentService = {
   broadcastStreamURL(): Promise<string> {
     return call("StudentService.BroadcastStreamURL");
   },
+  /** FocusBar brings the floating bar above the fullscreen viewer (quiz/chat). */
+  focusBar(): Promise<void> {
+    return call("StudentService.FocusBar");
+  },
+  /** Hands lists the active raise-hand records (for the raised-feedback loop). */
+  hands(): Promise<Record<string, unknown>[]> {
+    return call("StudentService.Hands");
+  },
   /** Identity returns the local student identity. */
   identity(): Promise<Identity> {
     return call("StudentService.Identity");

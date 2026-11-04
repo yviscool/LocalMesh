@@ -151,6 +151,10 @@ func (c *Console) handleQuizSubmit(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	_ = EventQuizSubmission.Emit(c.win, QuizSubmissionNotice{
+		QuizID: session.Quiz().ID, StudentID: graded.StudentID, DeviceID: graded.DeviceID,
+		StudentName: graded.StudentName, Score: graded.Score, MaxScore: graded.MaxScore,
+	})
 	writeJSON(w, http.StatusOK, graded)
 }
 

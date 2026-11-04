@@ -68,6 +68,20 @@ func Setup(level, file string) func() {
 	return func() {}
 }
 
+// SetLevel hot-swaps the minimum severity at runtime.
+func SetLevel(level string) {
+	switch strings.ToLower(level) {
+	case "debug":
+		minLevel = LevelDebug
+	case "warn":
+		minLevel = LevelWarn
+	case "error":
+		minLevel = LevelError
+	default:
+		minLevel = LevelInfo
+	}
+}
+
 // Emit writes one leveled line; used by app code instead of bare log calls
 // when the level matters.
 func Emit(level Level, format string, args ...any) {

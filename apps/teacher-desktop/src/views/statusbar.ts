@@ -7,13 +7,42 @@ import { el } from "../ui";
 export function renderStatusbar() {
   const s: AppState = store.get();
   const left = document.getElementById("status-left")!;
-  left.replaceChildren(
+  const children: (HTMLElement | null)[] = [
     st(s.devices.length > 0, "🖥️", "在线", `${s.devices.length} 台`),
     st(true, "📡", "频道", `${s.channel.channel_id}`),
     broadcastStatus(s),
     audioStatus(s),
     lockStatus(s),
-  );
+    quizLive(s),
+    bell(s),
+  ];
+  left.replaceChildren(...children.filter((c): c is HTMLElement => c !== null));
+}
+
+/** 测验常驻条：进行中的测验倒计时 + 已交人数。 */
+function quizLive(s: AppState): HTMLElement | null {
+  if (!s.quizLive?.active) return null;
+  const remain = Math.max(0, s.quizLive.time_remain);
+  const mm = String(Math.floor(remain / 60)).padStart(2, "0");
+  const ss = String(remain % 60).padStart(2, "0");
+  return el("span", { class: "st-quiz" }, "📝", `${mm}:${ss}`, `已交 ${s.quizLive.submissions}`);
+}
+
+/** 通知中心铃铛。 */
+function bell(s: AppState): HTMLElement {
+  const unread = s.unreadNotifications;
+  const btn = el("button", {
+    class: "cmd",
+    id: "notify-bell",
+    title: "通知中心",
+    onclick: () => {
+      import("./notify").then((m) => m.toggleNotifyCenter());
+    },
+  }, unread > 0 ? `🔔 ${unread}` : "🔔");
+  btn.style.height = "22px";
+  btn.style.padding = "0 8px";
+  btn.style.fontSize = "11px";
+  return btn;
 }
 
 function st(ok: boolean, icon: string, label: string, value: string): HTMLElement {
@@ -25,6 +54,8 @@ function st(ok: boolean, icon: string, label: string, value: string): HTMLElemen
     el("b", {}, value),
   );
 }
+
+function bellBtn(s: AppState): HTMLElement { return bell(s); }
 
 function broadcastStatus(s: AppState): HTMLElement {
   const active = s.broadcast.active;

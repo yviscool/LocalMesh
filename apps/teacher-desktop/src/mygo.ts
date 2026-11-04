@@ -148,6 +148,7 @@ export interface Config {
   thumbnails: ThumbnailsConfig;
   offline: OfflineConfig;
   log: LogConfig;
+  network: NetworkConfig;
 }
 
 /** DeviceInfo is one discovered student machine. */
@@ -258,6 +259,13 @@ export interface NetAdapter {
   name: string;
   mac: string;
   ips: string[];
+}
+
+export interface NetworkConfig {
+  http_port: number;
+  discovery_port: number;
+  screen_port: number;
+  remote_port: number;
 }
 
 export interface NetworkPolicy {
@@ -382,6 +390,16 @@ export interface QuizStatus {
   quiz?: Quiz;
   time_remain: number;
   submissions: number;
+}
+
+/** QuizSubmissionNotice is the realtime submission feed payload. */
+export interface QuizSubmissionNotice {
+  quiz_id: string;
+  student_id: string;
+  device_id: string;
+  student_name: string;
+  score: number;
+  max_score: number;
 }
 
 /** ScreenInfo describes an agent's screen. */
@@ -894,9 +912,17 @@ export const SceneService = {
 
 /** ConfigService exposes the runtime configuration to the settings page. */
 export const ConfigService = {
+  /** ExportConfig asks where to save the config and writes it. Returns "" on cancel. */
+  exportConfig(): Promise<string> {
+    return call("ConfigService.ExportConfig");
+  },
   /** Get returns the current configuration. */
   get(): Promise<Config> {
     return call("ConfigService.Get");
+  },
+  /** ImportConfig opens a TOML file and applies it immediately. */
+  importConfig(): Promise<boolean> {
+    return call("ConfigService.ImportConfig");
   },
   /**
    * Update persists new settings; broadcast changes take effect on the next
@@ -926,4 +952,6 @@ export const events = {
    * including unlocks made from the tray.
    */
   lockStatus: event<LockStatus>("lock:status"),
+  /** EventQuizSubmission carries one quiz submission as it arrives. */
+  quizSubmission: event<QuizSubmissionNotice>("quiz:submission"),
 } as const;

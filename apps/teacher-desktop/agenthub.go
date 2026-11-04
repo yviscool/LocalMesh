@@ -25,14 +25,21 @@ type OfflinePolicy struct {
 	LeaseSeconds int  `json:"lease_seconds,omitempty"`
 }
 
+// AgentConfigSection is the runtime sampling configuration agents follow.
+type AgentConfigSection struct {
+	ThumbnailIntervalMS int `json:"thumbnail_interval_ms"`
+	ThumbnailQuality    int `json:"thumbnail_quality"`
+}
+
 // AgentDesiredState is the idempotent control state every agent receives on
 // each poll. Nil sections mean "no control active" for that area.
 type AgentDesiredState struct {
-	ChannelID int                         `json:"channel_id"`
-	Lock      *screenlock.LockRequest     `json:"lock,omitempty"`
-	Netfilter *netfilter.NetworkPolicy    `json:"netfilter,omitempty"`
-	Process   *restrictions.ProcessPolicy `json:"process,omitempty"`
-	Offline   *OfflinePolicy              `json:"offline,omitempty"`
+	ChannelID  int                         `json:"channel_id"`
+	Lock       *screenlock.LockRequest     `json:"lock,omitempty"`
+	Netfilter  *netfilter.NetworkPolicy    `json:"netfilter,omitempty"`
+	Process    *restrictions.ProcessPolicy `json:"process,omitempty"`
+	Offline    *OfflinePolicy              `json:"offline,omitempty"`
+	AgentCfg   *AgentConfigSection         `json:"agent_config,omitempty"`
 }
 
 // AgentCommand is a one-shot instruction queued for one device or all.
@@ -99,6 +106,13 @@ func (h *agentHub) setProcess(pol *restrictions.ProcessPolicy) {
 func (h *agentHub) setOffline(pol *OfflinePolicy) {
 	h.mu.Lock()
 	h.state.Offline = pol
+	h.mu.Unlock()
+}
+
+// setAgentConfig updates the runtime sampling configuration.
+func (h *agentHub) setAgentConfig(cfg *AgentConfigSection) {
+	h.mu.Lock()
+	h.state.AgentCfg = cfg
 	h.mu.Unlock()
 }
 

@@ -541,6 +541,38 @@ export async function openFileCollectModal() {
   );
 }
 
+/* ---------- 首次运行引导 ---------- */
+
+export async function maybeShowWizard() {
+  if (localStorage.getItem("lm.wizard") === "done") return;
+  localStorage.setItem("lm.wizard", "done");
+
+  const { body, foot, close } = openModal("🧭", "欢迎使用 LocalMesh 课堂");
+  const chInput = el("input", { type: "number", value: "1", min: "1", max: "255" }) as HTMLInputElement;
+  const guardCheck = el("input", { type: "checkbox", checked: true }) as HTMLInputElement;
+
+  body.append(
+    el("div", { class: "note info" }, "三步开始第一节课："),
+    el("div", { class: "kv-list" },
+      el("div", { class: "kv" }, el("span", { class: "k" }, "① 选择机房频道"), el("span", { class: "v" }, "同一频道的学生机互相隔离")),
+      el("div", { class: "kv" }, el("span", { class: "k" }, "② 启动学生机 Agent"), el("span", { class: "v" }, el("code", {}, "go run ./apps/agent"))),
+      el("div", { class: "kv" }, el("span", { class: "k" }, "③ 点命令栏「▶ 上课」"), el("span", { class: "v" }, "广播+伴音+离线守护一键开启")),
+    ),
+    field("机房频道 (1-255)", chInput),
+    el("label", { class: "check-row" }, guardCheck, "启用离线守护（断网自动锁屏）"),
+  );
+  foot.append(el("button", {
+    class: "btn primary",
+    onclick: async () => {
+      try {
+        await ClassroomService.setChannel(Number(chInput.value) || 1);
+        await ControlService.setOfflinePolicy({ enabled: guardCheck.checked, lease_seconds: 10 });
+      } catch { /* ignore */ }
+      close();
+    },
+  }, "完成"));
+}
+
 /* ---------- 分组教学 ---------- */
 
 export async function openGroupModal() {
@@ -658,6 +690,7 @@ export async function openSettingsModal() {
             thumbnails: { interval_ms: Number(thumbInterval.value), quality: cfg.thumbnails.quality },
             offline: { enabled: cfg.offline.enabled, lease_seconds: Number(leaseInput.value) },
             log: { level: logLevel.value, file: cfg.log.file },
+            network: cfg.network,
           });
           store.log("⚙️", "设置已保存");
           toast("⚙️", "设置已保存（广播项下次开播生效）");

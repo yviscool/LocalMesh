@@ -150,6 +150,20 @@ func (s *StudentService) SubmitQuiz(_ context.Context, quizID string, answers ma
 	return out, nil
 }
 
+// FocusBar brings the floating bar above the fullscreen viewer (quiz/chat).
+func (s *StudentService) FocusBar(_ context.Context) {
+	if s.ui.bar != nil {
+		s.ui.bar.Focus()
+	}
+}
+
+// Hands lists the active raise-hand records (for the raised-feedback loop).
+func (s *StudentService) Hands(_ context.Context) ([]map[string]any, error) {
+	var out []map[string]any
+	err := getTeacherJSON(s.ui.teacherURL+"/api/v1/raisehand", &out, httpTimeout)
+	return out, err
+}
+
 // BroadcastStreamURL is the local MJPEG endpoint served by the agent.
 func (s *StudentService) BroadcastStreamURL(_ context.Context) string {
 	// student-ui 与 agent 同机，直接吃本地流

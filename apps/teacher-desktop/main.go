@@ -94,7 +94,7 @@ type Console struct {
 
 // NewConsole wires the full manager stack, mirroring the construction the
 // HTTP console previously performed by the legacy web console.
-func NewConsole() (*Console, error) {
+func NewConsole(cfg desktopconfig.Config) (*Console, error) {
 	rt, err := common.RuntimeForCurrentOS()
 	if err != nil {
 		return nil, fmt.Errorf("platform runtime: %w", err)
@@ -159,7 +159,12 @@ func NewConsole() (*Console, error) {
 	}
 	// 学生机跟随教师频道；离线守护默认开启（宽限 10 秒）。
 	console.hub.setChannel(classroom.DefaultChannelID)
-	console.hub.setOffline(&OfflinePolicy{Enabled: true, LeaseSeconds: 10})
+	console.hub.setOffline(&OfflinePolicy{Enabled: true, LeaseSeconds: cfg.Offline.LeaseSeconds})
+	console.cfg = cfg
+	console.hub.setAgentConfig(&AgentConfigSection{
+		ThumbnailIntervalMS: cfg.Thumbnails.IntervalMS,
+		ThumbnailQuality:    cfg.Thumbnails.Quality,
+	})
 
 	// 回载持久化座位表
 	seats, err := store.ListSeats(storeCtx, defaultClassroomID)
@@ -174,9 +179,13 @@ func NewConsole() (*Console, error) {
 }
 
 func main() {
+	cfg, err := desktopconfig.Load(desktopconfig.Path())
+	if err != nil {
+		log.Printf("[Config] load failed, using defaults: %v", err)
+	}
 	var (
-		flagHTTP      = flag.String("http", defaultHTTPListen, "HTTP listener for student agent pushes")
-		flagDiscovery = flag.String("discovery", defaultDiscoveryListen, "UDP discovery listener address")
+		flagHTTP      = flag.String("http", fmt.Sprintf("127.0.0.1:%d", cfg.Network.HTTPPort), "HTTP listener for student agent pushes")
+		flagDiscovery = flag.String("discovery", fmt.Sprintf(":%d", cfg.Network.DiscoveryPort), "UDP discovery listener address")
 	)
 	flag.Parse()
 
@@ -185,20 +194,14 @@ func main() {
 		return
 	}
 
-	// 配置中心：data/config.toml（缺失即默认值）
-	cfg, err := desktopconfig.Load(desktopconfig.Path())
-	if err != nil {
-		log.Printf("[Config] load failed, using defaults: %v", err)
-	}
 	if closer := logging.Setup(cfg.Log.Level, cfg.Log.File); closer != nil {
 		defer closer()
 	}
 
-	console, err := NewConsole()
+	console, err := NewConsole(cfg)
 	if err != nil {
 		log.Fatalf("failed to build console: %v", err)
 	}
-	console.cfg = cfg
 
 	go console.serveHTTP(*flagHTTP)
 	go console.serveDiscovery(*flagDiscovery)

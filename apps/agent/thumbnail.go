@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"localmesh/internal/capabilities/screen"
@@ -21,6 +22,27 @@ const (
 	thumbnailLogThrottle  = 30 * time.Second
 )
 
+// thumbnailController holds the runtime-tunable sampling parameters that
+// the teacher console pushes via the command channel.
+type thumbnailController struct {
+	intervalMS atomic.Int64
+	quality    atomic.Int64
+}
+
+func (t *thumbnailController) interval() time.Duration {
+	if v := t.intervalMS.Load(); v >= 500 {
+		return time.Duration(v) * time.Millisecond
+	}
+	return thumbnailPushInterval
+}
+
+func (t *thumbnailController) jpegQuality() int {
+	if v := int(t.quality.Load()); v >= 20 && v <= 95 {
+		return v
+	}
+	return thumbnailJPEGQuality
+}
+
 // startThumbnailPusher periodically captures the local screen, downscales it to
 // a thumbnail, and pushes the JPEG frame to the teacher console HTTP endpoint.
 // Capture or push failures are logged at most once per throttle window and the
@@ -32,9 +54,10 @@ func (a *AgentApp) startThumbnailPusher(ctx context.Context, teacherURL string) 
 	var seq uint64
 	var lastLog time.Time
 
-	ticker := time.NewTicker(thumbnailPushInterval)
+	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 
+	var lastPush time.Time
 	for {
 		select {
 		case <-ctx.Done():
@@ -43,12 +66,17 @@ func (a *AgentApp) startThumbnailPusher(ctx context.Context, teacherURL string) 
 			return
 		case <-ticker.C:
 		}
+		if time.Since(lastPush) < a.thumbCtl.interval() {
+			continue
+		}
 
 		if err := a.pushThumbnailFrame(client, url, &seq); err != nil {
 			if time.Since(lastLog) >= thumbnailLogThrottle {
 				log.Printf("[Thumbnail] push to %s failed: %v (further logs throttled)", url, err)
 				lastLog = time.Now()
 			}
+		} else {
+			lastPush = time.Now()
 		}
 	}
 }

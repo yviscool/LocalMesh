@@ -111,6 +111,57 @@ export function onModalClose(fn: ModalCleanup) {
   activeCleanup = fn;
 }
 
+/* ---------- 菜单浮层（下拉 + 右键共用） ---------- */
+
+export interface MenuItemDef {
+  icon?: string;
+  label: string;
+  run: () => void;
+  danger?: boolean;
+  separator?: boolean;
+}
+
+function closeMenu() {
+  document.querySelectorAll(".ctx-menu, .dropdown").forEach((m) => m.remove());
+}
+
+/** 在指定坐标弹出一个玻璃菜单，点击外部/Esc 关闭。 */
+export function showMenuAt(x: number, y: number, items: MenuItemDef[]) {
+  closeMenu();
+  const menu = el("div", { class: "ctx-menu" });
+  for (const item of items) {
+    if (item.separator) {
+      menu.append(el("div", { class: "ctx-sep" }));
+      continue;
+    }
+    menu.append(
+      el("button", {
+        class: "ctx-item" + (item.danger ? " danger" : ""),
+        onclick: () => {
+          closeMenu();
+          item.run();
+        },
+      }, item.icon ? el("span", { class: "ctx-ico" }, item.icon) : null, item.label),
+    );
+  }
+  document.body.append(menu);
+  const rect = menu.getBoundingClientRect();
+  menu.style.left = Math.min(x, window.innerWidth - rect.width - 8) + "px";
+  menu.style.top = Math.min(y, window.innerHeight - rect.height - 8) + "px";
+  setTimeout(() => {
+    document.addEventListener("mousedown", function dismiss(e) {
+      if (!menu.contains(e.target as Node)) closeMenu();
+      document.removeEventListener("mousedown", dismiss);
+    });
+    document.addEventListener("keydown", function esc(e) {
+      if (e.key === "Escape") {
+        closeMenu();
+        document.removeEventListener("keydown", esc);
+      }
+    });
+  });
+}
+
 /** Build a labelled form field. */
 export function field(label: string, input: HTMLElement, hint?: string): HTMLElement {
   const wrap = el("div", { class: "field" }, el("label", {}, label), input);

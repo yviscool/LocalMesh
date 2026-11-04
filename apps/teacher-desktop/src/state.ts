@@ -121,6 +121,21 @@ export interface ActivityItem {
   at: Date;
 }
 
+export interface GroupInfo {
+  group_id: string;
+  name: string;
+  members: string[];
+}
+
+export interface NotificationItem {
+  icon: string;
+  text: string;
+  at: Date;
+  level: "info" | "warn" | "danger";
+}
+
+export type CardSize = "S" | "M" | "L";
+
 export interface AppState {
   devices: DeviceInfo[];
   thumbs: Map<string, ThumbnailInfo>;
@@ -138,6 +153,13 @@ export interface AppState {
   view: "mosaic" | "seating";
   activity: ActivityItem[];
   unreadHands: number;
+  groups: GroupInfo[];
+  filterGroup: string | null;
+  sortMode: "name" | "online" | "group";
+  cardSize: CardSize;
+  notifications: NotificationItem[];
+  unreadNotifications: number;
+  quizLive: { active: boolean; time_remain: number; submissions: number } | null;
 }
 
 const initial: AppState = {
@@ -169,6 +191,13 @@ const initial: AppState = {
   buzzer: { state: "idle", question: "", rankings: [] },  view: "mosaic",
   activity: [],
   unreadHands: 0,
+  groups: [],
+  filterGroup: null,
+  sortMode: (localStorage.getItem("lm.sort") as "name" | "online" | "group") || "name",
+  cardSize: (localStorage.getItem("lm.card") as CardSize) || "M",
+  notifications: [],
+  unreadNotifications: 0,
+  quizLive: null,
 };
 
 type Listener = (state: AppState) => void;
@@ -196,6 +225,19 @@ export const store = {
   log(icon: string, text: string) {
     const activity = [{ icon, text, at: new Date() }, ...state.activity].slice(0, 60);
     store.set({ activity });
+  },
+
+  /** Push a notification-center entry (toast 也是它的影子)。 */
+  notify(icon: string, text: string, level: "info" | "warn" | "danger" = "info") {
+    const notifications = [{ icon, text, at: new Date(), level }, ...state.notifications].slice(0, 50);
+    store.set({ notifications, unreadNotifications: state.unreadNotifications + 1 });
+  },
+
+  groupOf(deviceID: string): string | null {
+    for (const g of state.groups) {
+      if (g.members.includes(deviceID)) return g.group_id;
+    }
+    return null;
   },
 };
 

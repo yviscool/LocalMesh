@@ -32,6 +32,13 @@ type desiredState struct {
 	Netfilter *netfilter.NetworkPolicy    `json:"netfilter"`
 	Process   *restrictions.ProcessPolicy `json:"process"`
 	Offline   *offlinePolicy              `json:"offline"`
+	AgentCfg  *agentConfigSection         `json:"agent_config"`
+}
+
+// agentConfigSection mirrors the teacher's runtime sampling config.
+type agentConfigSection struct {
+	ThumbnailIntervalMS int `json:"thumbnail_interval_ms"`
+	ThumbnailQuality    int `json:"thumbnail_quality"`
 }
 
 type offlinePolicy struct {
@@ -237,6 +244,20 @@ func (a *AgentApp) applyEnvelope(ctx context.Context, state desiredState, last *
 			}
 		}
 	}
+
+	// 采样配置：缩略图周期/质量即时生效（与上一周期期望值比对）
+	cfgChanged := false
+	if state.AgentCfg != nil {
+		if last.AgentCfg == nil ||
+			last.AgentCfg.ThumbnailIntervalMS != state.AgentCfg.ThumbnailIntervalMS ||
+			last.AgentCfg.ThumbnailQuality != state.AgentCfg.ThumbnailQuality {
+			a.thumbCtl.intervalMS.Store(int64(state.AgentCfg.ThumbnailIntervalMS))
+			a.thumbCtl.quality.Store(int64(state.AgentCfg.ThumbnailQuality))
+			a.events.add("config.followed", fmt.Sprintf("thumb %dms q%d", state.AgentCfg.ThumbnailIntervalMS, state.AgentCfg.ThumbnailQuality))
+			cfgChanged = true
+		}
+	}
+	_ = cfgChanged
 
 	// 5. Offline guard policy: only active while class control is present.
 	if offlineChanged(state.Offline, last.Offline) || anyControlActive(state) != anyControlActive(*last) {

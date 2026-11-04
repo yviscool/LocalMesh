@@ -22,6 +22,9 @@ import (
 	"localmesh/internal/capabilities/whiteboard"
 	"localmesh/internal/classroom"
 	"localmesh/internal/desktopconfig"
+	"localmesh/internal/logging"
+
+	"github.com/BurntSushi/toml"
 	"localmesh/internal/domain/command"
 	"localmesh/internal/storage/sqlite"
 
@@ -327,7 +330,63 @@ func (s *ConfigService) Update(_ context.Context, cfg desktopconfig.Config) erro
 		return err
 	}
 	s.c.cfg = cfg
+	// 日志级别立即生效；采样配置经指令通道推送 Agent
+	logging.SetLevel(cfg.Log.Level)
+	s.c.hub.setAgentConfig(&AgentConfigSection{
+		ThumbnailIntervalMS: cfg.Thumbnails.IntervalMS,
+		ThumbnailQuality:    cfg.Thumbnails.Quality,
+	})
 	return nil
+}
+
+// ExportConfig asks where to save the config and writes it. Returns "" on cancel.
+func (s *ConfigService) ExportConfig(ctx context.Context) (string, error) {
+	path, err := mygo.Dialog.Save(mygo.SaveDialogOptions{
+		Parent:      mygo.CallerWindow(ctx),
+		Title:       "导出配置",
+		DefaultPath: "localmesh-config.toml",
+	})
+	if err != nil || path == "" {
+		return "", err
+	}
+	raw, err := toml.Marshal(s.c.cfg)
+	if err != nil {
+		return "", err
+	}
+	return path, os.WriteFile(path, raw, 0o644)
+}
+
+// ImportConfig opens a TOML file and applies it immediately.
+func (s *ConfigService) ImportConfig(ctx context.Context) (bool, error) {
+	paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{
+		Parent: mygo.CallerWindow(ctx),
+		Title:  "导入配置",
+		Filters: []mygo.FileFilter{{Name: "TOML", Extensions: []string{".toml"}}},
+	})
+	if err != nil {
+		return false, err
+	}
+	if len(paths) == 0 || paths[0] == "" {
+		return false, nil
+	}
+	raw, err := os.ReadFile(paths[0])
+	if err != nil {
+		return false, err
+	}
+	cfg := desktopconfig.Defaults()
+	if _, err := toml.Decode(string(raw), &cfg); err != nil {
+		return false, fmt.Errorf("parse config: %w", err)
+	}
+	if err := cfg.Save(desktopconfig.Path()); err != nil {
+		return false, err
+	}
+	s.c.cfg = cfg
+	logging.SetLevel(cfg.Log.Level)
+	s.c.hub.setAgentConfig(&AgentConfigSection{
+		ThumbnailIntervalMS: cfg.Thumbnails.IntervalMS,
+		ThumbnailQuality:    cfg.Thumbnails.Quality,
+	})
+	return true, nil
 }
 
 // SceneService orchestrates one-click class start/stop (上课/下课).

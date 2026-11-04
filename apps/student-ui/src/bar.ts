@@ -33,7 +33,10 @@ function toggleChat() {
   if ($("#chat-pop").classList.contains("open")) void refreshChat();
   $("#chat-badge").classList.add("hidden");
 }
-$("#chat-btn").addEventListener("click", toggleChat);
+$("#chat-btn").addEventListener("click", () => {
+  toggleChat();
+  void StudentService.focusBar();
+});
 
 async function refreshChat() {
   try {
@@ -72,7 +75,10 @@ $("#chat-send").addEventListener("submit", async (e) => {
 $("#quiz-btn").addEventListener("click", () => {
   $("#quiz-pop").classList.toggle("open");
   $("#chat-pop").classList.remove("open");
-  if ($("#quiz-pop").classList.contains("open")) void refreshQuiz();
+  if ($("#quiz-pop").classList.contains("open")) {
+    void refreshQuiz();
+    void StudentService.focusBar();
+  }
 });
 
 async function refreshQuiz() {
